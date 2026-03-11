@@ -161,7 +161,7 @@ class LLMEnhancedSolver:
                 generated_solver_code=None,
                 physical_interpretation=interpretation,
                 used_llm=True,
-                llm_model="deepseek-coder:6.7b",
+                llm_model="llama3:latest",
                 processing_mode='ode'
             )
         else:
@@ -286,7 +286,7 @@ Provide:
             generated_solver_code=solver_code,
             physical_interpretation=f"PDE: {pde_spec.equation_type} in {pde_spec.domain}",
             used_llm=True,
-            llm_model="deepseek-coder:6.7b",
+            llm_model="llama3:latest",
             processing_mode='pde'
         )
     

@@ -19,13 +19,13 @@ class LLMResponse:
 
 
 class DeepSeekInterface:
-    """Interface to DeepSeek-Coder via Ollama"""
+    """Interface to DeepSeek-Coder which is changed to llama-3 via Ollama"""
     
     def __init__(self, 
-                 model_name: str = "deepseek-coder:6.7b",
+                 model_name: str = "llama3:latest",
                  ollama_url: str = "http://localhost:11434"):
         """
-        Initialize DeepSeek interface
+        Initialize llama-3 interface
         
         Args:
             model_name: Ollama model name
@@ -54,7 +54,7 @@ class DeepSeekInterface:
                  max_tokens: int = 2000,
                  stop_sequences: Optional[List[str]] = None) -> LLMResponse:
         """
-        Generate response from DeepSeek
+        Generate response from llama-3 model
         
         Args:
             prompt: User prompt
