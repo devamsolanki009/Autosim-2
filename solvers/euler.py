@@ -108,6 +108,7 @@ class EulerSolver:
             y_arr[:, n + 1] = y_next
             if n < 10:
                 steps_table.append({
+                    'step_number': n,
                     'n': n,
                     't_n':      round(float(tn),       6),
                     'x_n':      round(float(yn[0]),    6),
@@ -126,6 +127,7 @@ class EulerSolver:
             y_arr[:, n + 1] = y_next
             if n < 10:
                 steps_table.append({
+                    'step_number': n,
                     'n':        n,
                     't_n':      round(float(tn),       6),
                     'x_n':      round(float(yn[0]),    6),

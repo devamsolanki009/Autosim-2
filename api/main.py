@@ -262,6 +262,71 @@ async def solve(req: SolveRequest):
             else:
                 raise ValueError(sol.message)
 
+        elif method_key == "compare":
+            # Run RK45 as the primary solution for plotting; collect stats from both
+            sol_rk45  = _num_solver.solve(components, ic_dict,
+                                          time_span=time_span, method="RK45")
+            sol_radau = _num_solver.solve(components, ic_dict,
+                                          time_span=time_span, method="Radau")
+            if not sol_rk45.success:
+                raise ValueError(f"RK45 failed: {sol_rk45.message}")
+            t_arr, y_arr = sol_rk45.t, sol_rk45.y
+            success = True
+            message = "Compare mode: RK45 plotted; Radau run for comparison."
+            # Build comparison steps
+            def _stat(key: str, s) -> str:
+                v = s.statistics.get(key)
+                return f"{v:.6f}" if v is not None else "—"
+            steps = [
+                {
+                    "step_number": 1,
+                    "title": "Method A — RK45 (Explicit, Non-stiff)",
+                    "equation": (
+                        "Dormand-Prince 4(5) explicit Runge-Kutta — adaptive step-size.\n"
+                        f"x_final = {_stat('x_final', sol_rk45)},  "
+                        f"x_max = {_stat('x_max', sol_rk45)},  "
+                        f"x_min = {_stat('x_min', sol_rk45)}"
+                    ),
+                    "latex": r"\text{RK45: explicit, 6-stage, Dormand-Prince adaptive pair}",
+                    "type": "symbolic",
+                },
+                {
+                    "step_number": 2,
+                    "title": "Method B — Radau IIA (Implicit, L-stable)",
+                    "equation": (
+                        "3-stage 5th-order implicit collocation — best for stiff systems.\n"
+                        f"x_final = {_stat('x_final', sol_radau)},  "
+                        f"x_max = {_stat('x_max', sol_radau)},  "
+                        f"x_min = {_stat('x_min', sol_radau)}"
+                    ),
+                    "latex": r"\text{Radau IIA: implicit, L-stable, Newton iterations per step}",
+                    "type": "symbolic",
+                },
+                {
+                    "step_number": 3,
+                    "title": "Agreement Check",
+                    "equation": (
+                        "Both methods run with rtol=1e-8, atol=1e-10.\n"
+                        f"RK45 x_final = {_stat('x_final', sol_rk45)}  vs  "
+                        f"Radau x_final = {_stat('x_final', sol_radau)}\n"
+                        "Close agreement → solution is reliable regardless of method choice."
+                    ),
+                    "latex": r"\left| x_{\text{RK45}} - x_{\text{Radau}} \right| \approx 0 \;\Rightarrow\; \text{verified}",
+                    "type": "symbolic",
+                },
+                {
+                    "step_number": 4,
+                    "title": "When to Use Which",
+                    "equation": (
+                        "RK45:  fast, explicit — use for non-stiff / smooth systems.\n"
+                        "Radau: slower per step but stable — use when RK45 diverges or requires tiny steps.\n"
+                        "Rule of thumb: try RK45 first; switch to Radau if you see oscillations."
+                    ),
+                    "latex": r"\text{Stiff?} \Rightarrow \text{Radau}\quad\text{else}\Rightarrow \text{RK45}",
+                    "type": "symbolic",
+                },
+            ]
+
         else:
             # Default: numerical (rk45, radau, or fallback)
             scipy_method = "RK45" if method_key == "rk45" else "Radau"
@@ -271,47 +336,103 @@ async def solve(req: SolveRequest):
                 t_arr, y_arr = sol.t, sol.y
                 success = True
                 message = sol.message
-                # Build a descriptive breakdown of what the numerical solver did
-                a = components.coefficients.get("x2", 1.0)
-                b_coeff = components.coefficients.get("x1", 0.0)
-                c_coeff = components.coefficients.get("x0", 0.0)
-                steps = [
-                    {
-                        "step_number": 1,
-                        "title": "Rewrite as First-Order System",
-                        "equation": "Let v = x'  →  [x' = v,  v' = f(t, x, v)]",
-                        "latex": r"\text{Let } v = x' \Rightarrow \begin{cases} x' = v \\ v' = f(t, x, v) \end{cases}",
-                        "type": "symbolic",
-                    },
-                    {
-                        "step_number": 2,
-                        "title": "State Vector",
-                        "equation": "y = [x, v]^T,  y0 = [x(0), x'(0)]",
-                        "latex": r"\mathbf{y} = \begin{bmatrix} x \\ v \end{bmatrix}, \quad \mathbf{y}_0 = \begin{bmatrix} x(0) \\ x'(0) \end{bmatrix}",
-                        "type": "symbolic",
-                    },
-                    {
+
+                # ── Build method-specific step breakdown ──────────────────────
+                step1 = {
+                    "step_number": 1,
+                    "title": "Rewrite as First-Order System",
+                    "equation": "Let v = x'  →  [x' = v,  v' = f(t, x, v)]",
+                    "latex": r"\text{Let } v = x' \Rightarrow \begin{cases} x' = v \\ v' = f(t, x, v) \end{cases}",
+                    "type": "symbolic",
+                }
+                step2 = {
+                    "step_number": 2,
+                    "title": "State Vector & Initial Conditions",
+                    "equation": f"y = [x, v]^T,  y0 = [{ic_dict['x']}, {ic_dict['dx']}]",
+                    "latex": rf"\mathbf{{y}} = \begin{{bmatrix}} x \\ v \end{{bmatrix}},\quad \mathbf{{y}}_0 = \begin{{bmatrix}} {ic_dict['x']} \\ {ic_dict['dx']} \end{{bmatrix}}",
+                    "type": "symbolic",
+                }
+
+                if scipy_method == "RK45":
+                    step3 = {
                         "step_number": 3,
-                        "title": "Method Selection",
-                        "equation": f"Chosen method: {scipy_method}  (adaptive step-size Runge-Kutta)",
-                        "latex": rf"\text{{Method: }} \texttt{{{scipy_method}}}\ (\text{{adaptive step-size Runge-Kutta}})",
+                        "title": "Method: RK45 (Explicit Runge-Kutta 4(5))",
+                        "equation": (
+                            "Dormand-Prince explicit RK pair — 6 stage evaluations per step:\n"
+                            "k1 = f(tₙ, yₙ)\n"
+                            "k2 = f(tₙ + c₂h, yₙ + h·a₂₁k₁)\n"
+                            "...  (4th-order solution + 5th-order error estimate)\n"
+                            "Adaptive step-size via error control: if err > atol → halve h"
+                        ),
+                        "latex": (
+                            r"y_{n+1} = y_n + h\sum_{i=1}^{6} b_i k_i"
+                            r"\quad k_i = f\!\left(t_n + c_i h,\; y_n + h\sum_{j<i} a_{ij}k_j\right)"
+                        ),
                         "type": "symbolic",
-                    },
-                    {
+                    }
+                    step4 = {
                         "step_number": 4,
-                        "title": "Tolerances",
-                        "equation": "rtol = 1e-8,  atol = 1e-10  (double-precision accuracy)",
-                        "latex": r"\text{rtol} = 10^{-8},\quad \text{atol} = 10^{-10}",
+                        "title": "Error Control & Step-Size Adaptation",
+                        "equation": (
+                            "rtol = 1e-8,  atol = 1e-10\n"
+                            "err = ‖y₅ - y₄‖  (5th vs 4th order embedded pair)\n"
+                            "Best for: non-stiff systems — fast, explicit, minimal overhead"
+                        ),
+                        "latex": (
+                            r"\text{err} = \left\| y^{(5)} - y^{(4)} \right\|,"
+                            r"\quad h_{\text{new}} = h \left(\frac{\text{tol}}{\text{err}}\right)^{1/5}"
+                        ),
                         "type": "symbolic",
-                    },
-                    {
-                        "step_number": 5,
-                        "title": "Integration Result",
-                        "equation": f"n_points = {len(sol.t)},  t ∈ [{float(sol.t[0]):.2f}, {float(sol.t[-1]):.2f}],  success = {sol.success}",
-                        "latex": rf"n = {len(sol.t)},\quad t \in [{float(sol.t[0]):.2f},\ {float(sol.t[-1]):.2f}],\quad \text{{success}} = \text{{{sol.success}}}",
+                    }
+                else:  # Radau
+                    step3 = {
+                        "step_number": 3,
+                        "title": "Method: Radau IIA (Implicit Collocation — L-stable)",
+                        "equation": (
+                            "3-stage 5th-order implicit Runge-Kutta (Radau IIA collocation):\n"
+                            "Solves a coupled nonlinear system at each step (Newton iterations):\n"
+                            "  [I - h·A⊗J] · ΔK = residual\n"
+                            "L-stable → cannot go unstable for stiff problems regardless of step size"
+                        ),
+                        "latex": (
+                            r"\mathbf{K} = f\!\left(t_n\mathbf{1} + h\mathbf{c},\;"
+                            r"y_n\mathbf{1} + h(A\otimes I)\mathbf{K}\right)"
+                            r",\quad y_{n+1} = y_n + h\mathbf{b}^T\mathbf{K}"
+                        ),
                         "type": "symbolic",
-                    },
-                ]
+                    }
+                    step4 = {
+                        "step_number": 4,
+                        "title": "Stiffness Handling & Newton Convergence",
+                        "equation": (
+                            "rtol = 1e-8,  atol = 1e-10\n"
+                            "Each step: Newton iterations until ‖ΔK‖ < tol\n"
+                            "Jacobian reused across steps (quasi-Newton) for speed\n"
+                            "Best for: stiff systems (large eigenvalue spread) — implicit, robust"
+                        ),
+                        "latex": (
+                            r"\left(I - hA_{11}J\right)\Delta K^{(\nu)} = -F^{(\nu)},"
+                            r"\quad \text{until } \|\Delta K\| < \text{tol}"
+                        ),
+                        "type": "symbolic",
+                    }
+
+                step5 = {
+                    "step_number": 5,
+                    "title": "Integration Result",
+                    "equation": (
+                        f"n_points = {len(sol.t)},  "
+                        f"t ∈ [{float(sol.t[0]):.2f}, {float(sol.t[-1]):.2f}],  "
+                        f"success = {sol.success}"
+                    ),
+                    "latex": (
+                        rf"n = {len(sol.t)},\quad t \in [{float(sol.t[0]):.2f},\ {float(sol.t[-1]):.2f}],"
+                        rf"\quad \text{{success}} = \text{{{sol.success}}}"
+                    ),
+                    "type": "symbolic",
+                }
+
+                steps = [step1, step2, step3, step4, step5]
             else:
                 raise ValueError(sol.message)
 

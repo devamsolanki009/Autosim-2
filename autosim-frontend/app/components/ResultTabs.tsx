@@ -697,7 +697,7 @@ export default function ResultTabs({ solved, method, equation, useLlm, solveResu
                               <div style={{ fontWeight: 700, fontSize: "0.88rem", color: "var(--text-primary)" }}>{step.title}</div>
                             </div>
                             {step.equation && (
-                              <p style={{ fontSize: "0.82rem", color: "var(--text-secondary)", marginBottom: 10, marginLeft: 38, fontFamily: "var(--font-mono)" }}>{step.equation}</p>
+                              <pre style={{ fontSize: "0.82rem", color: "var(--text-secondary)", marginBottom: 10, marginLeft: 38, fontFamily: "var(--font-mono)", whiteSpace: "pre-wrap", margin: "0 0 10px 38px", lineHeight: 1.6 }}>{step.equation}</pre>
                             )}
                             {step.latex && (
                               <div style={{ marginLeft: 38, padding: "10px 16px", borderRadius: 8, background: "rgba(34,211,238,0.05)", border: "1px solid rgba(34,211,238,0.15)", fontFamily: "var(--font-mono)", fontSize: "0.85rem", color: "var(--neon-cyan)", overflowX: "auto", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
@@ -763,10 +763,12 @@ export default function ResultTabs({ solved, method, equation, useLlm, solveResu
                       );
                     })()
                   ) : (
-                    // ── Numerical (RK45 / Radau): solver breakdown from backend ──
+                    // ── Numerical (RK45 / Radau / Compare): solver breakdown from backend ──
                     <div>
                       <h3 style={{ fontSize: "1rem", fontWeight: 700, marginBottom: 20, color: "var(--neon-yellow)" }}>
-                        Numerical Solver Breakdown ({method.toUpperCase()})
+                        {method === "compare"
+                          ? "Method Comparison — RK45 vs Radau"
+                          : `Numerical Solver Breakdown (${method.toUpperCase()})`}
                       </h3>
                       {(solveResult?.steps ?? []).length === 0 ? (
                         <p style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>No breakdown returned by the solver.</p>
@@ -783,7 +785,7 @@ export default function ResultTabs({ solved, method, equation, useLlm, solveResu
                               <div style={{ fontWeight: 700, fontSize: "0.88rem", color: "var(--text-primary)" }}>{step.title}</div>
                             </div>
                             {step.equation && (
-                              <p style={{ fontSize: "0.82rem", color: "var(--text-secondary)", marginBottom: 10, marginLeft: 38, fontFamily: "var(--font-mono)" }}>{step.equation}</p>
+                              <pre style={{ fontSize: "0.82rem", color: "var(--text-secondary)", marginBottom: 10, marginLeft: 38, fontFamily: "var(--font-mono)", whiteSpace: "pre-wrap", margin: "0 0 10px 38px", lineHeight: 1.6 }}>{step.equation}</pre>
                             )}
                             {step.latex && (
                               <div style={{ marginLeft: 38, padding: "10px 16px", borderRadius: 8, background: "rgba(52,211,153,0.04)", border: "1px solid rgba(52,211,153,0.15)", fontFamily: "var(--font-mono)", fontSize: "0.85rem", color: "var(--neon-green)", overflowX: "auto", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
