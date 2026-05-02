@@ -32,6 +32,7 @@ interface SolverWorkspaceProps {
     tEnd: number;
     method: string;
     useLlm: boolean;
+    wolframKey: string;
   }) => void;
   isLoading: boolean;
 }
@@ -45,11 +46,13 @@ export default function SolverWorkspace({ onSolve, isLoading }: SolverWorkspaceP
   const [method, setMethod] = useState("rk45");
   const [useLlm, setUseLlm] = useState(false);
   const [showExamples, setShowExamples] = useState(false);
+  const [wolframKey, setWolframKey] = useState("");
+  const [showWolframTip, setShowWolframTip] = useState(false);
 
   const selectedMethod = METHODS.find((m) => m.key === method) ?? METHODS[2];
 
   const handleSolve = () => {
-    onSolve({ equation, x0, dx0, tStart, tEnd, method, useLlm });
+    onSolve({ equation, x0, dx0, tStart, tEnd, method, useLlm, wolframKey });
   };
 
   return (
@@ -457,6 +460,97 @@ export default function SolverWorkspace({ onSolve, isLoading }: SolverWorkspaceP
                 }}
               >
                 LLM will provide natural language explanations and physical interpretations.
+              </div>
+            )}
+          </div>
+
+          {/* WolframAlpha key */}
+          <div className="glass-card" style={{ padding: "20px 22px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+              <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>🔍 WolframAlpha Key</div>
+              <div
+                style={{
+                  position: "relative",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  cursor: "pointer",
+                }}
+                onMouseEnter={() => setShowWolframTip(true)}
+                onMouseLeave={() => setShowWolframTip(false)}
+              >
+                <span
+                  style={{
+                    width: 16,
+                    height: 16,
+                    borderRadius: "50%",
+                    background: "rgba(251,191,36,0.15)",
+                    border: "1px solid rgba(251,191,36,0.4)",
+                    color: "var(--neon-yellow)",
+                    fontSize: "0.65rem",
+                    fontWeight: 700,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontFamily: "var(--font-mono)",
+                  }}
+                >
+                  ?
+                </span>
+                {showWolframTip && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      bottom: "calc(100% + 8px)",
+                      left: "50%",
+                      transform: "translateX(-50%)",
+                      width: 240,
+                      padding: "10px 12px",
+                      borderRadius: 10,
+                      background: "rgba(15,23,42,0.97)",
+                      border: "1px solid rgba(251,191,36,0.35)",
+                      fontSize: "0.72rem",
+                      color: "var(--text-secondary)",
+                      lineHeight: 1.5,
+                      zIndex: 50,
+                      pointerEvents: "none",
+                    }}
+                  >
+                    Optional — free key from{" "}
+                    <span style={{ color: "var(--neon-yellow)", fontFamily: "var(--font-mono)" }}>
+                      developer.wolframalpha.com
+                    </span>
+                    . Enables independent WolframAlpha cross-check.
+                  </div>
+                )}
+              </div>
+            </div>
+            <input
+              id="wolfram-key-input"
+              type="password"
+              className="neon-input"
+              value={wolframKey}
+              onChange={(e) => setWolframKey(e.target.value)}
+              placeholder="App ID (optional)"
+              style={{
+                width: "100%",
+                padding: "10px 14px",
+                fontSize: "0.82rem",
+                letterSpacing: wolframKey ? "0.12em" : "normal",
+              }}
+            />
+            {wolframKey && (
+              <div
+                style={{
+                  marginTop: 8,
+                  padding: "6px 10px",
+                  borderRadius: 6,
+                  background: "rgba(52,211,153,0.08)",
+                  border: "1px solid rgba(52,211,153,0.25)",
+                  fontSize: "0.72rem",
+                  color: "var(--neon-green)",
+                }}
+              >
+                ✓ WolframAlpha check enabled
               </div>
             )}
           </div>

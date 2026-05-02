@@ -29,11 +29,6 @@
   --font-mono: 'JetBrains Mono', monospace;
 }
 
-@theme inline {
-  --color-background: var(--bg-primary);
-  --color-foreground: var(--text-primary);
-}
-
 * {
   box-sizing: border-box;
 }

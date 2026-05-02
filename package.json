@@ -1,0 +1,6 @@
+{
+  "name": "autosim-root",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AutoSim ODE Solver — Python backend + Next.js frontend monorepo"
+}

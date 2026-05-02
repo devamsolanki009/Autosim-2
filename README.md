@@ -1202,4 +1202,349 @@ open http://localhost:3000
 
 ---
 
+## Phase Progress Report
+
+> **Project Title:** AutoSim – A Hybrid Neuro-Symbolic Framework for Reliable Differential Equation Solving  
+> **Team Members:** Devam Solanki · Kunjal Makwana
+
+---
+
+### 21. Project Objective
+
+The primary objective of the AutoSim project is to design and implement a domain-specific intelligent system capable of solving Ordinary Differential Equations (ODEs) reliably and transparently.
+
+Unlike general-purpose LLMs (e.g., ChatGPT, Gemini, etc.), which may hallucinate or generate incorrect symbolic manipulations for complex equations, AutoSim aims to:
+
+- Classify differential equations correctly
+- Decide between symbolic and numerical solution strategies
+- Use verified mathematical solvers (SymPy / SciPy)
+- Generate plots and numerical summaries
+- Provide structured reasoning and step-by-step explanations
+
+The system follows a **hybrid approach** combining:
+
+- Rule-based mathematical logic
+- Verified symbolic computation
+- Verified numerical solvers
+- LLM-assisted reasoning (controlled usage)
+
+---
+
+### 22. Motivation
+
+Large Language Models often:
+
+- Hallucinate symbolic algebra
+- Provide incorrect intermediate steps
+- Generate mathematically invalid derivations
+- Fail in stiff or nonlinear systems
+
+AutoSim addresses this by ensuring that:
+
+- Mathematical computation is performed by **verified solvers**
+- The LLM does **not** directly compute algebra
+- Solver routing is **deterministic** and rule-based
+- All outputs are **mathematically grounded**
+
+---
+
+### 23. Work Completed So Far
+
+#### 23.1 ODE Dataset Construction (Phase 1)
+
+A structured dataset of differential equations was created covering:
+
+- Linear ODEs
+- Nonlinear ODEs
+- Stiff systems
+- Standard families (Duffing, Van der Pol, Logistic, etc.)
+
+Each dataset entry includes equation, parameters, initial conditions, classification metadata, and solver recommendations. This dataset is used for controlled LLM fine-tuning.
+
+#### 23.2 QLoRA Fine-Tuning Pipeline (Phase 2 – Stage A)
+
+A fine-tuning pipeline was built using:
+
+- 4-bit QLoRA
+- Mistral-7B-Instruct
+- Low VRAM optimisation (8 GB GPU environment)
+
+Training setup included a custom train/validation split, instruction-based formatting, controlled output design (classification-only behaviour), and gradient checkpointing for memory efficiency.
+
+The model was trained to:
+
+- Classify ODE type
+- Detect linearity and stiffness
+- Decide symbolic feasibility
+- Recommend appropriate solver
+- **Avoid** performing actual computation
+
+#### 23.3 Deterministic Rule-Based Solver Router
+
+A rule-based routing system was implemented to:
+
+- Detect equation order
+- Detect nonlinearity
+- Decide symbolic feasibility
+- Select solver type (symbolic vs numerical)
+- Identify equation families (Duffing, Van der Pol)
+
+This ensures mathematical correctness independent of LLM output.
+
+#### 23.4 Symbolic Solver Integration
+
+Implemented symbolic solving using SymPy's `dsolve`, characteristic equation approach, with support for distinct real roots, repeated roots, and complex roots.
+
+**Example solved:** `x'' + x = 0`  
+**Output:** `x(t) = C₁ sin(t) + C₂ cos(t)`
+
+#### 23.5 Numerical Solver Integration
+
+Implemented numerical solving using SciPy's `solve_ivp` with the RK45 integration method, automatic conversion of second-order ODE to first-order system, time-span based simulation, and plot generation.
+
+**Example solved:** `x'' + 0.2x' + x + 0.1x³ = cos(t)`  
+**System outputs:** final value x(t_f), maximum and minimum over interval, and a plot of x(t).
+
+#### 23.6 Hybrid Solve Pipeline
+
+A complete hybrid pipeline was implemented:
+
+```
+Equation Input
+      ↓
+Rule-Based Router
+      ↓
+Symbolic Solver (if possible)  OR  Numerical Solver (if required)
+      ↓
+Plot + Structured Summary
+      ↓
+Step-by-Step Explanation
+```
+
+This ensures:
+
+- No hallucinated algebra
+- Verified mathematical computation
+- Reproducible results
+
+---
+
+### 24. Current System Capabilities
+
+The system can now:
+
+| Capability | Status |
+|---|---|
+| Solve second-order linear ODEs symbolically | ✅ |
+| Solve nonlinear ODEs numerically | ✅ |
+| Handle Duffing and Van der Pol oscillators | ✅ |
+| Generate plots | ✅ |
+| Provide structured reasoning | ✅ |
+| Operate independently of LLM hallucination | ✅ |
+
+---
+
+### 25. Individual Contributions
+
+#### Partner Contribution (Kunjal Makwana)
+
+- Conducted extensive research on: neuro-symbolic AI approaches, LLM hallucination in mathematical reasoning, hybrid solver architectures, and differential equation solution strategies
+- Identified solution pathways and research directions
+- Evaluated existing literature and methodologies
+- Proposed architectural design concepts for hybrid reasoning
+
+#### My Contribution (Devam Solanki)
+
+- Designed and implemented the full system architecture
+- Built and structured the AutoSim dataset
+- Implemented QLoRA fine-tuning pipeline
+- Developed deterministic solver router
+- Integrated symbolic solver (SymPy)
+- Integrated numerical solver (SciPy RK45)
+- Implemented equation-family registry
+- Built hybrid solve pipeline
+- Implemented plotting and summary modules
+- Performed end-to-end testing and validation
+- Ensured reproducibility and mathematical correctness
+
+All system-level implementation, training pipeline construction, solver integration, and experimental validation were carried out by Devam Solanki.
+
+---
+
+### 26. Current Stage
+
+> **Hybrid ODE Solving Stage (Phase 2 Implementation Complete)**
+
+Achieved milestones:
+
+- ✅ Reliable symbolic solving
+- ✅ Reliable numerical solving
+- ✅ Verified routing mechanism
+- ✅ End-to-end execution pipeline
+
+---
+
+### 27. Frontend Design Philosophy
+
+The frontend of AutoSim was designed not merely as a user interface, but as an **interactive scientific computing environment**. The goal was to move beyond traditional form-based interfaces (e.g., Streamlit) and create a system that resembles modern computational tools such as MATLAB Online, Wolfram Alpha, and Desmos.
+
+The design follows a structured workflow:
+
+```
+Understand → Define → Compute → Visualize → Interpret
+```
+
+Each section of the UI corresponds to a stage in this pipeline, ensuring that the user is guided logically through the process of solving differential equations.
+
+**Key principles followed:**
+
+| Principle | Description |
+|---|---|
+| **Clarity** | Minimal cognitive load while inputting equations |
+| **Interactivity** | Immediate visual feedback via dynamic plots |
+| **Transparency** | Display of solver decisions and computation steps |
+| **Trust** | Emphasis on "Zero Hallucination" — all numerical results are deterministic |
+
+---
+
+### 28. Frontend–Backend Integration
+
+The frontend communicates with the AutoSim backend via a REST API layer. The integration ensures a clear separation between:
+
+- **Computation Layer** (Python)
+- **Visualization & Interaction Layer** (Next.js)
+
+**Workflow:**
+
+1. User inputs equation and parameters
+2. Frontend sends request to backend API
+3. Backend: parses equation → routes to appropriate solver → computes solution
+4. Frontend: receives structured response → renders plots and insights → displays LLM-generated explanations
+
+This architecture ensures **modularity**, **scalability**, and **maintainability**.
+
+---
+
+### 29. Visualization Strategy
+
+Instead of relying on standard plotting libraries, the visualization panel was designed using a **custom Canvas 2D rendering system**. This approach provides:
+
+- Higher rendering performance
+- Greater control over styling
+- Smooth animations and transitions
+- Custom visual elements such as:
+  - Neon glow effects
+  - Phase space arrows
+  - Gradient-filled trajectories
+
+**Two primary visualizations are implemented:**
+
+| View | Description |
+|---|---|
+| **Time-series plot** | x(t) — temporal behaviour |
+| **Phase portrait** | x vs x′ — dynamical system properties |
+
+The ability to toggle between views allows users to analyse both temporal behaviour and dynamical system properties.
+
+---
+
+### 30. User Experience (UX) Design
+
+The UI was intentionally structured as a **single-page scrollable experience**, allowing users to move seamlessly between introduction, solver workspace, and results dashboard.
+
+**Key UX features:**
+
+- Progressive disclosure (simple → advanced information)
+- Tabbed result exploration
+- Interactive solver selection
+- Live feedback during computation
+
+Special attention was given to **visual hierarchy**, ensuring that:
+
+- Inputs are clearly separated from outputs
+- Results are grouped logically
+- Important metrics are highlighted
+
+---
+
+### 31. Role of LLM Integration in UI
+
+The frontend integrates LLM outputs as an **explanatory layer**, not as a computational engine.
+
+Displayed outputs include:
+
+- Natural language explanation of equation
+- Physical interpretation
+- Classification of system
+
+This improves:
+
+- Accessibility for beginners
+- Interpretability of results
+- Educational value of the platform
+
+---
+
+### 32. Collaborative Development
+
+The frontend development was carried out collaboratively.
+
+| Role | Contributor |
+|---|---|
+| Primary System Design & Backend Integration | Devam P. Solanki |
+| Frontend UI Development & Component Implementation | Kunjal Makwana |
+
+The frontend implementation — including layout structuring, component design, styling system, and interactive panels — was significantly contributed by Kunjal Makwana.
+
+This collaborative approach enabled faster development cycles, separation of concerns (backend vs frontend), and improved UI quality.
+
+---
+
+### 33. Advantages Over Previous Streamlit Interface
+
+The previous Streamlit-based interface was limited in layout flexibility, visual design, interactivity, and scalability.
+
+| Feature | Streamlit | New Frontend |
+|---|---|---|
+| UI Flexibility | Low | High |
+| Interactivity | Limited | Advanced |
+| Visualization | Basic | Custom Canvas |
+| User Experience | Linear | Interactive |
+| Scalability | Limited | High |
+
+---
+
+### 34. Future Enhancements
+
+The frontend architecture allows several future improvements:
+
+- Multi-method comparison (Euler vs RK4 vs RK45)
+- 3D PDE visualization
+- Real-time simulation controls
+- Export of results (CSV, plots)
+- Integration with reinforcement learning-based solver selection
+
+---
+
+### 35. Conclusion
+
+The AutoSim frontend transforms the system from a simple solver into an **interactive computational laboratory** for differential equations.
+
+By combining:
+
+- Modern web technologies
+- Scientific visualization
+- Deterministic computation
+- AI-assisted explanation
+
+…the platform achieves both **engineering robustness** and **educational usability**.
+
+This makes AutoSim suitable for:
+
+- Academic learning
+- Research experimentation
+- Engineering analysis
+
+---
+
 *AutoSim v2.0 · Python backend by AutoSim-2 · Next.js 14 frontend · LLM via Ollama*

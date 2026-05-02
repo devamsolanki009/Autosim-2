@@ -50,9 +50,10 @@ interface PlotlyPanelProps {
   equation: string;
   tEnd: number;
   solved: boolean;
+  solveResult?: { t: number[]; y: number[][] } | null;
 }
 
-export default function PlotlyPanel({ method, equation, tEnd, solved }: PlotlyPanelProps) {
+export default function PlotlyPanel({ method, equation, tEnd, solved, solveResult }: PlotlyPanelProps) {
   const timeCanvasRef = useRef<HTMLCanvasElement>(null);
   const phaseCanvasRef = useRef<HTMLCanvasElement>(null);
   const [activeView, setActiveView] = useState<"time" | "phase" | "both">("both");
@@ -60,7 +61,19 @@ export default function PlotlyPanel({ method, equation, tEnd, solved }: PlotlyPa
   useEffect(() => {
     if (!solved) return;
 
-    const { t, x, dxdt } = generateMockData(method, tEnd);
+    // Use real data if available, otherwise fall back to mock
+    let t: number[], x: number[], dxdt: number[];
+    if (solveResult && solveResult.t.length > 0) {
+      t = solveResult.t;
+      x = solveResult.y[0];
+      dxdt = solveResult.y.length > 1 ? solveResult.y[1] : t.map((_, i) => {
+        if (i === 0) return 0;
+        return (x[i] - x[i - 1]) / (t[i] - t[i - 1]);
+      });
+    } else {
+      const mock = generateMockData(method, tEnd);
+      t = mock.t; x = mock.x; dxdt = mock.dxdt;
+    }
     const color = METHOD_COLORS[method] ?? "#a78bfa";
 
     // Draw time series
@@ -277,7 +290,7 @@ export default function PlotlyPanel({ method, equation, tEnd, solved }: PlotlyPa
 
     drawTimeSeries();
     drawPhasePortrait();
-  }, [solved, method, tEnd]);
+  }, [solved, method, tEnd, solveResult]);
 
   const color = METHOD_COLORS[method] ?? "#a78bfa";
 

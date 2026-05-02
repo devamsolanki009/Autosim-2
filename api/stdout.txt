@@ -1,0 +1,7 @@
+INFO:     127.0.0.1:64789 - "POST /generate-solver HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52149 - "OPTIONS /solve HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52149 - "POST /solve HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52149 - "OPTIONS /verify HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61279 - "OPTIONS /generate-solver HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56318 - "POST /verify HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52149 - "POST /generate-solver HTTP/1.1" 200 OK
