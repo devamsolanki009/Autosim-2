@@ -95,9 +95,12 @@ class ODEParser:
         # Convert x^n to x**n
         eq = eq.replace('^', '**')
         
-        # Ensure multiplication is explicit
+        # Ensure multiplication is explicit for digits followed by letters
         eq = re.sub(r'(\d)([a-z])', r'\1*\2', eq)
-        eq = re.sub(r'([a-z])(\()', r'\1*\2', eq)
+        # Insert * between a single letter and ( only — not after known math functions.
+        # Match a letter that is NOT preceded by another letter (i.e. it's a standalone
+        # variable like x or t, not the tail of sin/cos/exp/tan/log/sqrt/abs).
+        eq = re.sub(r'(?<![a-z])([a-z])(\()', r'\1*\2', eq)
         
         return eq
     

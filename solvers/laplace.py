@@ -192,7 +192,7 @@ class LaplaceSolver:
         if b != 0: parts.append(f"{b}\\dot{{x}}")
         if c != 0: parts.append(f"{c}x")
         lhs = " + ".join(parts) or "0"
-        rhs = sp.latex(sp.sympify(forcing)) if forcing else "0"
+        rhs = sp.latex(sp.sympify(forcing, locals={'t': self.t, 'sin': sp.sin, 'cos': sp.cos, 'exp': sp.exp})) if forcing else "0"
         return f"{lhs} = {rhs}"
 
     def _lhs_latex(self, a, b, c, x0, dx0):

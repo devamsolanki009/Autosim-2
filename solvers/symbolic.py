@@ -146,12 +146,20 @@ class SymbolicSolver:
             )
         
         else:
-            # Non-homogeneous: use variation of parameters or undetermined coefficients
-            # For now, use SymPy's dsolve
-            ode_eq = sp.Eq(a * sp.diff(self.x(self.t), self.t, 2) + 
-                          b * sp.diff(self.x(self.t), self.t) + 
-                          c * self.x(self.t),
-                          sp.sympify(components.forcing_function))
+            # Non-homogeneous: use SymPy's dsolve
+            a_sym = sp.sympify(a)
+            b_sym = sp.sympify(b)
+            c_sym = sp.sympify(c)
+            forcing_sym = sp.sympify(
+                str(components.forcing_function),
+                locals={'t': self.t, 'sin': sp.sin, 'cos': sp.cos, 'exp': sp.exp}
+            )
+            ode_eq = sp.Eq(
+                a_sym * sp.diff(self.x(self.t), self.t, 2) +
+                b_sym * sp.diff(self.x(self.t), self.t) +
+                c_sym * self.x(self.t),
+                forcing_sym
+            )
             
             solution = sp.dsolve(ode_eq, self.x(self.t))
             

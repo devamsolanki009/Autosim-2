@@ -10,12 +10,23 @@ Exposes:
 
 from __future__ import annotations
 
+import os
 import sys
 import time
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 
 import numpy as np
+
+# Load .env file if present (python-dotenv is optional)
+try:
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).parent.parent / ".env")
+except ImportError:
+    pass
+
+# Default Wolfram key from environment — users can set WOLFRAM_APP_ID in .env
+_DEFAULT_WOLFRAM_KEY: Optional[str] = (os.environ.get("WOLFRAM_APP_ID") or "").strip() or None
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -206,14 +217,21 @@ async def solve(req: SolveRequest):
     success = False
     message = ""
 
+    steps: List[Dict] = []
+
     try:
         if method_key in ("symbolic",) and _HAS_SYMBOLIC:
             sol = _sym_solver.solve(components, ic_dict)
             t_arr, y_arr = _sample_symbolic(sol, time_span)
             success = True
             message = "Exact symbolic solution."
+            steps = [
+                {"step_number": s.step_number, "title": s.description,
+                 "equation": s.equation, "latex": s.latex}
+                for s in sol.derivation_steps
+            ]
 
-        elif method_key == "laplace" and _HAS_LAPLACE:
+        elif method_key == "laplace" and _HAS_LAPLACE and _HAS_SYMBOLIC:
             sol = _lap_solver.solve(components, ic_dict)
             if sol.success and sol.x_of_t is not None:
                 t_sym2 = sp.Symbol("t", positive=True)
@@ -224,6 +242,11 @@ async def solve(req: SolveRequest):
                 t_arr, y_arr = t_arr2, np.vstack([x2, v2])
                 success = sol.success
                 message = sol.message
+                steps = [
+                    {"step_number": s.step_number, "title": s.description,
+                     "equation": s.equation, "latex": s.latex}
+                    for s in sol.derivation_steps
+                ]
             else:
                 raise ValueError(sol.message)
 
@@ -235,6 +258,7 @@ async def solve(req: SolveRequest):
                 t_arr, y_arr = sol.t, sol.y
                 success = True
                 message = sol.message
+                steps = sol.steps_table
             else:
                 raise ValueError(sol.message)
 
@@ -247,6 +271,47 @@ async def solve(req: SolveRequest):
                 t_arr, y_arr = sol.t, sol.y
                 success = True
                 message = sol.message
+                # Build a descriptive breakdown of what the numerical solver did
+                a = components.coefficients.get("x2", 1.0)
+                b_coeff = components.coefficients.get("x1", 0.0)
+                c_coeff = components.coefficients.get("x0", 0.0)
+                steps = [
+                    {
+                        "step_number": 1,
+                        "title": "Rewrite as First-Order System",
+                        "equation": "Let v = x'  →  [x' = v,  v' = f(t, x, v)]",
+                        "latex": r"\text{Let } v = x' \Rightarrow \begin{cases} x' = v \\ v' = f(t, x, v) \end{cases}",
+                        "type": "symbolic",
+                    },
+                    {
+                        "step_number": 2,
+                        "title": "State Vector",
+                        "equation": "y = [x, v]^T,  y0 = [x(0), x'(0)]",
+                        "latex": r"\mathbf{y} = \begin{bmatrix} x \\ v \end{bmatrix}, \quad \mathbf{y}_0 = \begin{bmatrix} x(0) \\ x'(0) \end{bmatrix}",
+                        "type": "symbolic",
+                    },
+                    {
+                        "step_number": 3,
+                        "title": "Method Selection",
+                        "equation": f"Chosen method: {scipy_method}  (adaptive step-size Runge-Kutta)",
+                        "latex": rf"\text{{Method: }} \texttt{{{scipy_method}}}\ (\text{{adaptive step-size Runge-Kutta}})",
+                        "type": "symbolic",
+                    },
+                    {
+                        "step_number": 4,
+                        "title": "Tolerances",
+                        "equation": "rtol = 1e-8,  atol = 1e-10  (double-precision accuracy)",
+                        "latex": r"\text{rtol} = 10^{-8},\quad \text{atol} = 10^{-10}",
+                        "type": "symbolic",
+                    },
+                    {
+                        "step_number": 5,
+                        "title": "Integration Result",
+                        "equation": f"n_points = {len(sol.t)},  t ∈ [{float(sol.t[0]):.2f}, {float(sol.t[-1]):.2f}],  success = {sol.success}",
+                        "latex": rf"n = {len(sol.t)},\quad t \in [{float(sol.t[0]):.2f},\ {float(sol.t[-1]):.2f}],\quad \text{{success}} = \text{{{sol.success}}}",
+                        "type": "symbolic",
+                    },
+                ]
             else:
                 raise ValueError(sol.message)
 
@@ -282,6 +347,7 @@ async def solve(req: SolveRequest):
         "success":        success,
         "message":        message,
         "classification": classification,
+        "steps":          steps,
     }
 
 
@@ -308,7 +374,8 @@ async def verify(req: VerifyRequest):
         "stats":  req.result.stats,
     }
 
-    wolfram_key = req.wolfram_key if req.wolfram_key and req.wolfram_key.strip() else None
+    wolfram_key = (req.wolfram_key.strip() if req.wolfram_key and req.wolfram_key.strip()
+                   else _DEFAULT_WOLFRAM_KEY)
 
     try:
         report = _verifier.verify(

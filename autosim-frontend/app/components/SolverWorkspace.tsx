@@ -515,11 +515,12 @@ export default function SolverWorkspace({ onSolve, isLoading }: SolverWorkspaceP
                       pointerEvents: "none",
                     }}
                   >
-                    Optional — free key from{" "}
+                    WolframAlpha check runs automatically using the built-in key.
+                    Paste your own key from{" "}
                     <span style={{ color: "var(--neon-yellow)", fontFamily: "var(--font-mono)" }}>
                       developer.wolframalpha.com
                     </span>
-                    . Enables independent WolframAlpha cross-check.
+                    {" "}to override it.
                   </div>
                 )}
               </div>
@@ -530,7 +531,7 @@ export default function SolverWorkspace({ onSolve, isLoading }: SolverWorkspaceP
               className="neon-input"
               value={wolframKey}
               onChange={(e) => setWolframKey(e.target.value)}
-              placeholder="App ID (optional)"
+              placeholder="Override App ID (optional)"
               style={{
                 width: "100%",
                 padding: "10px 14px",
@@ -538,21 +539,25 @@ export default function SolverWorkspace({ onSolve, isLoading }: SolverWorkspaceP
                 letterSpacing: wolframKey ? "0.12em" : "normal",
               }}
             />
-            {wolframKey && (
-              <div
-                style={{
-                  marginTop: 8,
-                  padding: "6px 10px",
-                  borderRadius: 6,
-                  background: "rgba(52,211,153,0.08)",
-                  border: "1px solid rgba(52,211,153,0.25)",
-                  fontSize: "0.72rem",
-                  color: "var(--neon-green)",
-                }}
-              >
-                ✓ WolframAlpha check enabled
-              </div>
-            )}
+            <div
+              style={{
+                marginTop: 8,
+                padding: "6px 10px",
+                borderRadius: 6,
+                background: wolframKey
+                  ? "rgba(52,211,153,0.08)"
+                  : "rgba(99,102,241,0.06)",
+                border: wolframKey
+                  ? "1px solid rgba(52,211,153,0.25)"
+                  : "1px solid rgba(99,102,241,0.2)",
+                fontSize: "0.72rem",
+                color: wolframKey ? "var(--neon-green)" : "var(--text-muted)",
+              }}
+            >
+              {wolframKey
+                ? "✓ WolframAlpha check active (your key)"
+                : "✓ WolframAlpha check active (built-in key)"}
+            </div>
           </div>
 
           {/* Zero hallucination note */}

@@ -189,6 +189,36 @@ Explanation:"""
             max_tokens=1000
         )
 
+    def generate_step_narrative(self, equation: str, steps: list) -> list:
+        """
+        Generate plain-English narrative for each derivation step.
+
+        Args:
+            equation: The original ODE string (e.g. "x'' + 2x' + 5x = sin(t)")
+            steps:    List of DerivationStep / LaplaceStep objects
+
+        Returns:
+            List of narrative strings, one per step (empty string on failure).
+        """
+        system_prompt = (
+            "You are a math tutor explaining ODE solution steps to an engineering student. "
+            "Answer each question in exactly 2-3 plain English sentences. "
+            "Focus on WHY the step is performed, not just what the equation says. "
+            "Be concise and avoid unnecessary formulas."
+        )
+        narratives = []
+        for step in steps:
+            prompt = (
+                f"We are solving the ODE: {equation}\n\n"
+                f"Step {step.step_number}: \"{step.description}\"\n"
+                f"Equation at this step: {step.equation}\n\n"
+                f"In 2-3 sentences, explain WHY this step is done and what it achieves:"
+            )
+            resp = self.generate(prompt=prompt, system_prompt=system_prompt,
+                                 temperature=0.3, max_tokens=200)
+            narratives.append(resp.content.strip() if resp.success else "")
+        return narratives
+
 
 def demo():
     """Demonstrate DeepSeek integration"""

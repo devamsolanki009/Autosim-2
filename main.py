@@ -20,7 +20,6 @@ from utils.visualization import ODEVisualizer
 
 
 @dataclass
-@dataclass
 class CompleteSolution:
     equation: str
     classification: Dict

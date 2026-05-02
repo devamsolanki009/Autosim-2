@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import type { SolveResult, VerificationReport, VerificationSource } from "../page";
+import type { SolveResult, SolveStep, VerificationReport, VerificationSource } from "../page";
 
 export interface SolverCodeResult {
   parsed: {
@@ -37,28 +37,6 @@ interface ResultTabsProps {
   codeLoading?: boolean;
 }
 
-const STEPS_EXAMPLE = [
-  { num: 1, title: "Parse Input", content: "Parse the equation x'' + 0.2·x' + x = cos(t) into characteristic components.", latex: "x'' + 0.2x' + x = \\cos(t)" },
-  { num: 2, title: "Write Characteristic Equation", content: "Replace x'' → r², x' → r, x → 1.", latex: "r^2 + 0.2r + 1 = 0" },
-  { num: 3, title: "Solve for Roots", content: "Discriminant: Δ = 0.04 - 4 = -3.96 < 0, complex conjugate roots.", latex: "r = -0.1 \\pm i\\sqrt{0.99}" },
-  { num: 4, title: "Homogeneous Solution", content: "Underdamped exponentially decaying oscillation.", latex: "x_h = e^{-0.1t}(C_1\\cos(0.995t) + C_2\\sin(0.995t))" },
-  { num: 5, title: "Particular Solution (Method of Undetermined Coefficients)", content: "Assume x_p = A·cos(t) + B·sin(t) and solve for A, B.", latex: "x_p = \\frac{0.8}{0.64}\\cos(t) + \\frac{0.2 \\cdot 0.8}{0.64}\\sin(t)" },
-  { num: 6, title: "Apply Initial Conditions", content: "Apply x(0) = 1, x'(0) = 0 to find C₁ and C₂.", latex: "C_1 = 1 - A, \\quad C_2 = \\frac{0.1C_1 - B}{0.995}" },
-  { num: 7, title: "Complete Solution", content: "The complete solution is the sum of homogenous and particular parts.", latex: "x(t) = x_h(t) + x_p(t)" },
-];
-
-const EULER_STEPS = [
-  { t: 0.0, x: 1.000, fx: 0.000, xNew: 1.000 },
-  { t: 0.1, x: 1.000, fx: -0.127, xNew: 0.987 },
-  { t: 0.2, x: 0.987, fx: -0.118, xNew: 0.975 },
-  { t: 0.3, x: 0.975, fx: -0.109, xNew: 0.964 },
-  { t: 0.4, x: 0.964, fx: -0.101, xNew: 0.954 },
-  { t: 0.5, x: 0.954, fx: -0.092, xNew: 0.945 },
-  { t: 0.6, x: 0.945, fx: -0.083, xNew: 0.937 },
-  { t: 0.7, x: 0.937, fx: -0.075, xNew: 0.929 },
-  { t: 0.8, x: 0.929, fx: -0.066, xNew: 0.923 },
-  { t: 0.9, x: 0.923, fx: -0.058, xNew: 0.917 },
-];
 
 const LLM_INSIGHT = `This ODE describes a **damped harmonic oscillator** subjected to a **periodic forcing function** cos(t). 
 
@@ -394,8 +372,6 @@ export default function ResultTabs({ solved, method, equation, useLlm, solveResu
     { id: "steps",    label: "🔢 Steps",       color: "var(--neon-yellow)" },
   ];
 
-  const isSymbolicOrEuler = ["symbolic", "laplace", "euler_fwd", "euler_imp"].includes(method);
-
   // Derive stats from real solve result if available
   const stats = solveResult?.stats;
   const classification = solveResult?.classification as Record<string, unknown> | undefined;
@@ -423,7 +399,7 @@ export default function ResultTabs({ solved, method, equation, useLlm, solveResu
               key={tab.id}
               className={`tab-btn ${activeTab === tab.id ? "active" : ""}`}
               onClick={() => setActiveTab(tab.id)}
-              style={{ flexShrink: 0, borderRadius: "8px 8px 0 0", color: activeTab === tab.id ? tab.color : undefined, borderColor: activeTab === tab.id ? "rgba(124,58,237,0.35)" : "transparent", borderBottom: "none" }}
+              style={{ flexShrink: 0, borderRadius: "8px 8px 0 0", color: activeTab === tab.id ? tab.color : undefined, borderTopColor: activeTab === tab.id ? "rgba(124,58,237,0.35)" : "transparent", borderLeftColor: activeTab === tab.id ? "rgba(124,58,237,0.35)" : "transparent", borderRightColor: activeTab === tab.id ? "rgba(124,58,237,0.35)" : "transparent", borderBottomColor: "transparent", borderStyle: "solid" }}
             >
               {tab.label}
             </button>
@@ -700,62 +676,123 @@ export default function ResultTabs({ solved, method, equation, useLlm, solveResu
               {/* STEPS TAB */}
               {activeTab === "steps" && (
                 <div className="fade-in">
-                  {isSymbolicOrEuler && method !== "euler_fwd" && method !== "euler_imp" ? (
+                  {(method === "symbolic" || method === "laplace") ? (
+                    // ── Symbolic / Laplace: real derivation steps from backend ──
                     <div>
-                      <h3 style={{ fontSize: "1rem", fontWeight: 700, marginBottom: 20, color: "var(--neon-yellow)" }}>Step-by-Step Derivation</h3>
-                      {STEPS_EXAMPLE.map((step) => (
-                        <div key={step.num} style={{ marginBottom: 16, padding: "16px 18px", borderRadius: 12, background: "rgba(15,23,42,0.6)", border: "1px solid var(--border)", transition: "border-color 0.2s" }}
-                          onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.borderColor = "rgba(124,58,237,0.3)"; }}
-                          onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = "var(--border)"; }}
-                        >
-                          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-                            <div style={{ width: 28, height: 28, borderRadius: 8, background: "rgba(124,58,237,0.2)", border: "1px solid rgba(124,58,237,0.4)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.78rem", fontWeight: 700, color: "var(--neon-purple)", fontFamily: "var(--font-mono)", flexShrink: 0 }}>
-                              {step.num}
+                      <h3 style={{ fontSize: "1rem", fontWeight: 700, marginBottom: 20, color: "var(--neon-yellow)" }}>
+                        {method === "laplace" ? "Laplace Transform Derivation" : "Step-by-Step Symbolic Derivation"}
+                      </h3>
+                      {(solveResult?.steps ?? []).length === 0 ? (
+                        <p style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>No derivation steps returned by the solver.</p>
+                      ) : (
+                        (solveResult!.steps as SolveStep[]).map((step) => (
+                          <div key={step.step_number} style={{ marginBottom: 16, padding: "16px 18px", borderRadius: 12, background: "rgba(15,23,42,0.6)", border: "1px solid var(--border)", transition: "border-color 0.2s" }}
+                            onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.borderColor = "rgba(124,58,237,0.3)"; }}
+                            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = "var(--border)"; }}
+                          >
+                            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                              <div style={{ width: 28, height: 28, borderRadius: 8, background: "rgba(124,58,237,0.2)", border: "1px solid rgba(124,58,237,0.4)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.78rem", fontWeight: 700, color: "var(--neon-purple)", fontFamily: "var(--font-mono)", flexShrink: 0 }}>
+                                {step.step_number}
+                              </div>
+                              <div style={{ fontWeight: 700, fontSize: "0.88rem", color: "var(--text-primary)" }}>{step.title}</div>
                             </div>
-                            <div style={{ fontWeight: 700, fontSize: "0.88rem", color: "var(--text-primary)" }}>{step.title}</div>
+                            {step.equation && (
+                              <p style={{ fontSize: "0.82rem", color: "var(--text-secondary)", marginBottom: 10, marginLeft: 38, fontFamily: "var(--font-mono)" }}>{step.equation}</p>
+                            )}
+                            {step.latex && (
+                              <div style={{ marginLeft: 38, padding: "10px 16px", borderRadius: 8, background: "rgba(34,211,238,0.05)", border: "1px solid rgba(34,211,238,0.15)", fontFamily: "var(--font-mono)", fontSize: "0.85rem", color: "var(--neon-cyan)", overflowX: "auto", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                                {step.latex}
+                              </div>
+                            )}
                           </div>
-                          <p style={{ fontSize: "0.82rem", color: "var(--text-secondary)", marginBottom: 10, marginLeft: 38 }}>{step.content}</p>
-                          <div style={{ marginLeft: 38, padding: "10px 16px", borderRadius: 8, background: "rgba(34,211,238,0.05)", border: "1px solid rgba(34,211,238,0.15)", fontFamily: "var(--font-mono)", fontSize: "0.9rem", color: "var(--neon-cyan)" }}>
-                            {step.latex}
+                        ))
+                      )}
+                    </div>
+                  ) : (method === "euler_fwd" || method === "euler_imp") ? (
+                    // ── Euler: real steps_table from backend ──
+                    (() => {
+                      const eulerSteps = (solveResult?.steps ?? []) as SolveStep[];
+                      const isImproved = method === "euler_imp";
+                      const cols = isImproved
+                        ? ["t_n", "x_n", "k1", "k2", "x_{n+1}"]
+                        : ["t_n", "x_n", "f(t,y)", "x_{n+1}"];
+                      const h = eulerSteps.length > 1
+                        ? ((eulerSteps[1].t_n ?? 0) - (eulerSteps[0].t_n ?? 0)).toFixed(6)
+                        : "—";
+                      return (
+                        <div>
+                          <h3 style={{ fontSize: "1rem", fontWeight: 700, marginBottom: 16, color: "var(--neon-yellow)" }}>
+                            {isImproved ? "Improved Euler (Heun's Method) — Integration Steps (first 10)" : "Forward Euler — Integration Steps (first 10)"}
+                          </h3>
+                          <div style={{ padding: "10px 14px", borderRadius: 10, background: "rgba(34,211,238,0.06)", border: "1px solid rgba(34,211,238,0.2)", marginBottom: 16, fontSize: "0.8rem", color: "var(--neon-cyan)", fontFamily: "var(--font-mono)" }}>
+                            Step size h = {h}
                           </div>
+                          {eulerSteps.length === 0 ? (
+                            <p style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>No integration steps returned.</p>
+                          ) : (
+                            <div style={{ overflowX: "auto" }}>
+                              <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "var(--font-mono)", fontSize: "0.82rem" }}>
+                                <thead>
+                                  <tr>
+                                    {cols.map((col) => (
+                                      <th key={col} style={{ padding: "10px 14px", textAlign: "left", borderBottom: "1px solid var(--border)", color: "var(--text-muted)", fontSize: "0.72rem", textTransform: "uppercase", letterSpacing: "1px" }}>{col}</th>
+                                    ))}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {eulerSteps.map((row, i) => (
+                                    <tr key={i} style={{ borderBottom: "1px solid rgba(99,102,241,0.06)", background: i % 2 === 0 ? "transparent" : "rgba(99,102,241,0.02)" }}>
+                                      <td style={{ padding: "9px 14px", color: "var(--neon-yellow)" }}>{(row.t_n ?? 0).toFixed(4)}</td>
+                                      <td style={{ padding: "9px 14px", color: "var(--neon-cyan)" }}>{(row.x_n ?? 0).toFixed(6)}</td>
+                                      {isImproved ? (
+                                        <>
+                                          <td style={{ padding: "9px 14px", color: "var(--text-secondary)" }}>{(row.k1 ?? 0).toFixed(6)}</td>
+                                          <td style={{ padding: "9px 14px", color: "var(--text-secondary)" }}>{(row.k2 ?? 0).toFixed(6)}</td>
+                                        </>
+                                      ) : (
+                                        <td style={{ padding: "9px 14px", color: "var(--text-secondary)" }}>{(row["f(t,y)"] ?? 0).toFixed(6)}</td>
+                                      )}
+                                      <td style={{ padding: "9px 14px", color: "var(--neon-green)" }}>{(row["x_{n+1}"] ?? 0).toFixed(6)}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
                         </div>
-                      ))}
-                    </div>
-                  ) : method === "euler_fwd" || method === "euler_imp" ? (
-                    <div>
-                      <h3 style={{ fontSize: "1rem", fontWeight: 700, marginBottom: 16, color: "var(--neon-yellow)" }}>Integration Steps (first 10)</h3>
-                      <div style={{ padding: "10px 14px", borderRadius: 10, background: "rgba(34,211,238,0.06)", border: "1px solid rgba(34,211,238,0.2)", marginBottom: 16, fontSize: "0.8rem", color: "var(--neon-cyan)", fontFamily: "var(--font-mono)" }}>
-                        Step size h = 0.100000 · Total steps: 500
-                      </div>
-                      <div style={{ overflowX: "auto" }}>
-                        <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "var(--font-mono)", fontSize: "0.82rem" }}>
-                          <thead>
-                            <tr>
-                              {["t_n", "x_n", "f(t,x)", "x_{n+1}"].map((col) => (
-                                <th key={col} style={{ padding: "10px 14px", textAlign: "left", borderBottom: "1px solid var(--border)", color: "var(--text-muted)", fontSize: "0.72rem", textTransform: "uppercase", letterSpacing: "1px" }}>{col}</th>
-                              ))}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {EULER_STEPS.map((row, i) => (
-                              <tr key={i} style={{ borderBottom: "1px solid rgba(99,102,241,0.06)", background: i % 2 === 0 ? "transparent" : "rgba(99,102,241,0.02)" }}>
-                                <td style={{ padding: "9px 14px", color: "var(--neon-yellow)" }}>{row.t.toFixed(1)}</td>
-                                <td style={{ padding: "9px 14px", color: "var(--neon-cyan)" }}>{row.x.toFixed(3)}</td>
-                                <td style={{ padding: "9px 14px", color: "var(--text-secondary)" }}>{row.fx.toFixed(3)}</td>
-                                <td style={{ padding: "9px 14px", color: "var(--neon-green)" }}>{row.xNew.toFixed(3)}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
+                      );
+                    })()
                   ) : (
-                    <div style={{ padding: "40px", textAlign: "center" }}>
-                      <div style={{ fontSize: "2.5rem", marginBottom: 12 }}>⚙️</div>
-                      <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem", marginBottom: 8 }}>Step-by-step derivation is not available for numerical methods.</p>
-                      <p style={{ color: "var(--text-muted)", fontSize: "0.8rem" }}>
-                        Use <span className="badge badge-purple">Symbolic</span> or <span className="badge badge-purple">Euler</span> methods to see derivation steps.
-                      </p>
+                    // ── Numerical (RK45 / Radau): solver breakdown from backend ──
+                    <div>
+                      <h3 style={{ fontSize: "1rem", fontWeight: 700, marginBottom: 20, color: "var(--neon-yellow)" }}>
+                        Numerical Solver Breakdown ({method.toUpperCase()})
+                      </h3>
+                      {(solveResult?.steps ?? []).length === 0 ? (
+                        <p style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>No breakdown returned by the solver.</p>
+                      ) : (
+                        (solveResult!.steps as SolveStep[]).map((step) => (
+                          <div key={step.step_number} style={{ marginBottom: 16, padding: "16px 18px", borderRadius: 12, background: "rgba(15,23,42,0.6)", border: "1px solid var(--border)", transition: "border-color 0.2s" }}
+                            onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.borderColor = "rgba(52,211,153,0.3)"; }}
+                            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = "var(--border)"; }}
+                          >
+                            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                              <div style={{ width: 28, height: 28, borderRadius: 8, background: "rgba(52,211,153,0.15)", border: "1px solid rgba(52,211,153,0.4)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.78rem", fontWeight: 700, color: "var(--neon-green)", fontFamily: "var(--font-mono)", flexShrink: 0 }}>
+                                {step.step_number}
+                              </div>
+                              <div style={{ fontWeight: 700, fontSize: "0.88rem", color: "var(--text-primary)" }}>{step.title}</div>
+                            </div>
+                            {step.equation && (
+                              <p style={{ fontSize: "0.82rem", color: "var(--text-secondary)", marginBottom: 10, marginLeft: 38, fontFamily: "var(--font-mono)" }}>{step.equation}</p>
+                            )}
+                            {step.latex && (
+                              <div style={{ marginLeft: 38, padding: "10px 16px", borderRadius: 8, background: "rgba(52,211,153,0.04)", border: "1px solid rgba(52,211,153,0.15)", fontFamily: "var(--font-mono)", fontSize: "0.85rem", color: "var(--neon-green)", overflowX: "auto", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                                {step.latex}
+                              </div>
+                            )}
+                          </div>
+                        ))
+                      )}
                     </div>
                   )}
                 </div>

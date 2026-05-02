@@ -22,6 +22,22 @@ interface SolveParams {
   wolframKey: string;
 }
 
+export interface SolveStep {
+  step_number: number;
+  title?: string;
+  equation?: string;
+  latex?: string;
+  // Euler table columns (keys vary by variant)
+  n?: number;
+  t_n?: number;
+  x_n?: number;
+  "f(t,y)"?: number;
+  k1?: number;
+  k2?: number;
+  "x_{n+1}"?: number;
+  type?: string;
+}
+
 export interface SolveResult {
   t: number[];
   y: number[][];
@@ -30,6 +46,7 @@ export interface SolveResult {
   success: boolean;
   message: string;
   classification?: Record<string, unknown>;
+  steps?: SolveStep[];
 }
 
 export interface VerificationSource {

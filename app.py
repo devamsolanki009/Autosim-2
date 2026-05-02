@@ -439,15 +439,27 @@ def _plot_single(result: Dict):
     plt.close(fig)
 
 
-def _render_symbolic_steps(steps):
+def _render_symbolic_steps(steps, equation: str = "", use_llm: bool = False):
     """Derivation steps from symbolic or Laplace solver."""
-    for step in steps:
+    narratives = []
+    if use_llm and equation and steps:
+        llm_iface = getattr(st.session_state.get("llm_solver"), "llm", None)
+        if llm_iface is not None:
+            with st.spinner("Generating step explanations…"):
+                try:
+                    narratives = llm_iface.generate_step_narrative(equation, steps)
+                except Exception:
+                    narratives = []
+
+    for i, step in enumerate(steps):
         with st.container():
             st.markdown(f"**Step {step.step_number} — {step.description}**")
             try:
                 st.latex(step.latex)
             except Exception:
                 st.code(step.equation)
+            if narratives and i < len(narratives) and narratives[i]:
+                st.info(narratives[i])
             st.divider()
 
 
@@ -538,7 +550,11 @@ def render_single_method(result: Dict, classification: Dict,
         if key in ("symbolic", "laplace") and steps:
             st.markdown("#### 3️⃣ Step-by-Step Derivation")
             with st.expander("View all derivation steps", expanded=False):
-                _render_symbolic_steps(steps)
+                _render_symbolic_steps(
+                    steps,
+                    equation=st.session_state.get("equation", ""),
+                    use_llm=use_llm,
+                )
             st.divider()
 
         elif key in ("euler_fwd", "euler_imp") and isinstance(steps, list) \
@@ -783,6 +799,17 @@ def _compare_timing_chart(results: List[Dict]):
     plt.close(fig)
 
 
+_COMPARE_PRIORITY = ["symbolic", "laplace", "rk45", "radau", "euler_imp", "euler_fwd"]
+_COMPARE_REASONS  = {
+    "symbolic":   "Exact closed-form solution — most reliable for linear ODEs",
+    "laplace":    "Exact s-domain solution with initial conditions baked in",
+    "rk45":       "High-accuracy adaptive numerical method (industry reference)",
+    "radau":      "Implicit solver — best choice for stiff systems",
+    "euler_imp":  "Improved Euler — better accuracy than forward method",
+    "euler_fwd":  "Forward Euler — educational; lowest accuracy",
+}
+
+
 def render_compare_all(results: List[Dict]):
     """Full comparison view."""
     n_ok = sum(1 for r in results if r["success"])
@@ -790,6 +817,23 @@ def render_compare_all(results: List[Dict]):
         f"### Compare All Methods "
         f"<span class='mbadge mb-cmp'>{n_ok}/{len(results)} succeeded</span>",
         unsafe_allow_html=True)
+
+    # ── Best Answer banner ────────────────────────────────────────────────
+    best = next(
+        (r for k in _COMPARE_PRIORITY for r in results if r["key"] == k and r["success"]),
+        None
+    )
+    if best:
+        stats     = best.get("stats", {})
+        x_final   = stats.get("x_final", None)
+        val_str   = f"  |  x(t_end) = **{x_final:.4g}**" if x_final is not None else ""
+        reason    = _COMPARE_REASONS.get(best["key"], "")
+        st.markdown(
+            f"<div class='box box-ok' style='margin-bottom:10px'>"
+            f"<b>📌 Recommended Solution: {best['display_name'].split('—')[0].strip()}</b>"
+            f"{val_str}<br><small>{reason}</small></div>",
+            unsafe_allow_html=True,
+        )
 
     tab_ov, tab_st, tab_tm, *method_tabs = st.tabs(
         ["📈 Overlapping Plots", "📊 Stats Table", "⏱ Compute Time"]
@@ -822,7 +866,11 @@ def render_compare_all(results: List[Dict]):
             sol   = result.get("solution_obj")
             if result["key"] in ("symbolic", "laplace") and steps:
                 with st.expander("Step-by-Step Derivation"):
-                    _render_symbolic_steps(steps)
+                    _render_symbolic_steps(
+                        steps,
+                        equation=st.session_state.get("equation", ""),
+                        use_llm=st.session_state.get("_use_llm", False),
+                    )
             elif result["key"].startswith("euler") and isinstance(steps, list) and steps and isinstance(steps[0], dict):
                 with st.expander("Integration Steps (first 10)"):
                     _render_euler_table(steps, sol)

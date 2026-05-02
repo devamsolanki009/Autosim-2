@@ -76,6 +76,11 @@ export default function PlotlyPanel({ method, equation, tEnd, solved, solveResul
     }
     const color = METHOD_COLORS[method] ?? "#a78bfa";
 
+    // Wait one animation frame so the browser has laid out the newly-visible
+    // canvases before we read offsetWidth/offsetHeight (avoids drawing at 0×0
+    // when a canvas container just appeared after a tab switch).
+    let rafId: number;
+
     // Draw time series
     const drawTimeSeries = () => {
       const canvas = timeCanvasRef.current;
@@ -83,12 +88,15 @@ export default function PlotlyPanel({ method, equation, tEnd, solved, solveResul
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
 
-      canvas.width = canvas.offsetWidth * window.devicePixelRatio;
-      canvas.height = canvas.offsetHeight * window.devicePixelRatio;
-      ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+      // getBoundingClientRect is reliable even before offsetWidth settles
+      const rect = canvas.getBoundingClientRect();
+      const W = rect.width || canvas.offsetWidth;
+      const H = rect.height || canvas.offsetHeight;
+      if (W === 0 || H === 0) return;
 
-      const W = canvas.offsetWidth;
-      const H = canvas.offsetHeight;
+      canvas.width = W * window.devicePixelRatio;
+      canvas.height = H * window.devicePixelRatio;
+      ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
       const pad = { top: 20, bottom: 40, left: 50, right: 20 };
       const pw = W - pad.left - pad.right;
       const ph = H - pad.top - pad.bottom;
@@ -198,12 +206,14 @@ export default function PlotlyPanel({ method, equation, tEnd, solved, solveResul
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
 
-      canvas.width = canvas.offsetWidth * window.devicePixelRatio;
-      canvas.height = canvas.offsetHeight * window.devicePixelRatio;
-      ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+      const rect = canvas.getBoundingClientRect();
+      const W = rect.width || canvas.offsetWidth;
+      const H = rect.height || canvas.offsetHeight;
+      if (W === 0 || H === 0) return;
 
-      const W = canvas.offsetWidth;
-      const H = canvas.offsetHeight;
+      canvas.width = W * window.devicePixelRatio;
+      canvas.height = H * window.devicePixelRatio;
+      ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
       const pad = { top: 20, bottom: 40, left: 50, right: 20 };
       const pw = W - pad.left - pad.right;
       const ph = H - pad.top - pad.bottom;
@@ -288,9 +298,13 @@ export default function PlotlyPanel({ method, equation, tEnd, solved, solveResul
       ctx.restore();
     };
 
-    drawTimeSeries();
-    drawPhasePortrait();
-  }, [solved, method, tEnd, solveResult]);
+    rafId = requestAnimationFrame(() => {
+      drawTimeSeries();
+      drawPhasePortrait();
+    });
+
+    return () => cancelAnimationFrame(rafId);
+  }, [solved, method, tEnd, solveResult, activeView]);
 
   const color = METHOD_COLORS[method] ?? "#a78bfa";
 

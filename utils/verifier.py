@@ -66,9 +66,9 @@ def _get_coeffs(components) -> Optional[Dict[str, float]]:
         if not components.is_linear:
             return None
         coeffs = components.coefficients
-        a = float(coeffs.get("x''", coeffs.get("a", 1.0)))
-        b = float(coeffs.get("x'",  coeffs.get("b", 0.0)))
-        c = float(coeffs.get("x",   coeffs.get("c", 0.0)))
+        a = float(coeffs.get("x2", coeffs.get("a", 1.0)))
+        b = float(coeffs.get("x1", coeffs.get("b", 0.0)))
+        c = float(coeffs.get("x0", coeffs.get("c", 0.0)))
         return {"a": a, "b": b, "c": c}
     except Exception:
         return None
@@ -215,6 +215,19 @@ def _check_analytical(components, result: Dict, ic: Dict) -> VerificationSource:
 
 def _check_wolfram(components, result: Dict, ic: Dict,
                    time_span, wolfram_app_id: Optional[str]) -> VerificationSource:
+    """
+    Strategy: use our own SymPy solver to get the reference solution expression,
+    then ask Wolfram to evaluate that expression numerically at 5 sample points
+    via the Short Answers API (/v1/result).  This avoids asking Wolfram to solve
+    the ODE (whose plaintext output is truncated and unparseable for complex ODEs)
+    and instead uses Wolfram purely as an independent numeric evaluator.
+
+    Flow:
+      1. Solve ODE symbolically with SymPy → get x(t) expression
+      2. Convert expression to a Wolfram-readable string
+      3. For each sample t, ask: "N[<expr>, {t, <val>}]" via Short Answers API
+      4. Compare Wolfram's number against our numerical solver's value
+    """
     name = "WolframAlpha API"
 
     if not wolfram_app_id:
@@ -223,62 +236,102 @@ def _check_wolfram(components, result: Dict, ic: Dict,
                                    details={})
     try:
         import requests
+        import sympy as sp
 
         t_arr = np.array(result["t"])
         y_arr = np.array(result["y"])
         x_num = y_arr[0]
 
         t0, t_end = float(time_span[0]), float(time_span[1])
-        fractions = [0.10, 0.25, 0.50, 0.75, 0.90]
-        sample_t = [t0 + f * (t_end - t0) for f in fractions]
 
-        x0 = float(ic.get("x", 1.0))
-        dx0 = float(ic.get("dx", 0.0))
+        # ── Step 1: get fully-determined reference solution from SymPy ──────────
+        # We call dsolve with ics= so C1/C2 are eliminated. This gives a numeric
+        # expression we can evaluate at any t — no free constants remaining.
+        try:
+            t_sym = sp.Symbol("t", positive=True)
+            x_fn  = sp.Function("x")
+            x0_val  = float(ic.get("x",  1.0))
+            dx0_val = float(ic.get("dx", 0.0))
 
-        # Build equation string for Wolfram
-        raw_eq = str(components.raw_equation) if hasattr(components, "raw_equation") else ""
-        wolfram_eq = raw_eq or "y''(t) + y(t) = 0"
+            a = float(components.coefficients.get("x2", 0))
+            b = float(components.coefficients.get("x1", 0))
+            c_coef = float(components.coefficients.get("x0", 0))
+            forcing_str = str(components.forcing_function or "0")
+            forcing_sym = sp.sympify(forcing_str,
+                                     locals={"t": t_sym, "sin": sp.sin,
+                                             "cos": sp.cos, "exp": sp.exp})
 
-        wolfram_y = []
-        wolfram_t = []
-        errors = []
+            ode_eq = sp.Eq(
+                sp.sympify(a) * x_fn(t_sym).diff(t_sym, 2) +
+                sp.sympify(b) * x_fn(t_sym).diff(t_sym) +
+                sp.sympify(c_coef) * x_fn(t_sym),
+                forcing_sym
+            )
+            ics = {x_fn(0): x0_val, x_fn(t_sym).diff(t_sym).subs(t_sym, 0): dx0_val}
+            dsolve_result = sp.dsolve(ode_eq, x_fn(t_sym), ics=ics)
+            ref_expr = sp.simplify(dsolve_result.rhs)
+
+            if ref_expr is None:
+                raise ValueError("dsolve returned None")
+        except Exception as sym_err:
+            return VerificationSource(name=name, status="skip",
+                                       message=f"WolframAlpha check skipped — could not obtain "
+                                               f"reference solution from SymPy: {sym_err}",
+                                       details={})
+
+        # ── Step 2: build Wolfram-readable expression string ──────────────────
+        # sp.mathematica_code converts SymPy expr to Mathematica/Wolfram syntax
+        try:
+            wolfram_expr = sp.mathematica_code(ref_expr)
+        except Exception:
+            wolfram_expr = str(ref_expr)
+
+        # ── Step 3: ask Wolfram to evaluate at 5 sample points ────────────────
+        fractions   = [0.10, 0.25, 0.50, 0.75, 0.90]
+        sample_t    = [t0 + f * (t_end - t0) for f in fractions]
+        wolfram_y, wolfram_t, errors = [], [], []
 
         for t_val in sample_t:
-            query = (f"solve {wolfram_eq}, y(0)={x0}, y'(0)={dx0} "
-                     f"at t={t_val:.4f}")
+            # Build query: evaluate the expression numerically at a specific t
+            # Use \b word-boundary so we don't replace 't' inside longer tokens
+            expr_at_t = re.sub(r'\bt\b', f"({t_val:.6f})", wolfram_expr)
+            query     = f"N[{expr_at_t}]"
             try:
                 resp = requests.get(
                     "https://api.wolframalpha.com/v1/result",
                     params={"appid": wolfram_app_id, "i": query},
-                    timeout=8,
+                    timeout=10,
                 )
                 text = resp.text.strip()
-                # Parse first float-like number from response
-                nums = re.findall(r"-?\d+\.?\d*(?:e[+-]?\d+)?", text)
+                # Short Answers returns a plain number for numeric queries
+                nums = re.findall(r"-?\d+\.?\d*(?:[eE][+-]?\d+)?", text)
                 if not nums:
                     continue
                 w_val = float(nums[0])
+                if not math.isfinite(w_val):
+                    continue
+                u_val = float(np.interp(t_val, t_arr, x_num))
                 wolfram_y.append(w_val)
                 wolfram_t.append(t_val)
-
-                # Interpolate user solution at this t
-                u_val = float(np.interp(t_val, t_arr, x_num))
                 errors.append(abs(u_val - w_val))
             except Exception:
                 continue
 
         if not errors:
             return VerificationSource(name=name, status="error",
-                                       message="Could not parse any WolframAlpha responses.",
-                                       details={})
+                                       message="WolframAlpha returned no numeric responses. "
+                                               "Check your App ID or network connection.",
+                                       details={"sample_query": f"N[{wolfram_expr[:80]}]"})
 
-        max_err = float(max(errors))
+        # ── Step 4: score ──────────────────────────────────────────────────────
+        max_err  = float(max(errors))
         mean_err = float(sum(errors) / len(errors))
-        scale = max(max(abs(v) for v in wolfram_y), 1e-10)
-        conf = max(0.0, (1.0 - mean_err / scale) * 100.0)
+        scale    = max(max(abs(v) for v in wolfram_y), 1e-10)
+        status   = "pass" if mean_err < 0.05 * scale else "fail"
+        conf     = max(0.0, (1.0 - mean_err / scale) * 100.0) if status == "pass" \
+                   else max(0.0, 100.0 * float(np.exp(-mean_err / (0.05 * scale))))
 
-        status = "pass" if mean_err < 0.05 * scale else "fail"
-        msg = (f"Checked at {len(errors)}/5 sample points. "
+        msg = (f"Checked at {len(errors)}/5 sample points against SymPy reference. "
                f"Mean deviation = {mean_err:.3e}, max = {max_err:.3e}.")
 
         comparison_table = [
@@ -289,16 +342,12 @@ def _check_wolfram(components, result: Dict, ic: Dict,
         ]
 
         return VerificationSource(
-            name=name,
-            status=status,
-            message=msg,
-            max_error=max_err,
-            mean_error=mean_err,
-            confidence=conf,
-            reference_t=wolfram_t,
-            reference_y=wolfram_y,
+            name=name, status=status, message=msg,
+            max_error=max_err, mean_error=mean_err, confidence=conf,
+            reference_t=wolfram_t, reference_y=wolfram_y,
             details={"comparison_table": comparison_table,
-                     "points_checked": len(errors)},
+                     "points_checked": len(errors),
+                     "reference_expression": str(ref_expr)[:200]},
         )
 
     except Exception as exc:
@@ -322,6 +371,13 @@ def _check_energy(components, result: Dict) -> VerificationSource:
                                        message="Requires 2nd-order ODE with velocity data (y.shape[0] >= 2).",
                                        details={})
 
+        # Energy conservation only meaningful for unforced (homogeneous) systems.
+        # Forced systems have external energy input so conservation does not apply.
+        if not components.is_homogeneous:
+            return VerificationSource(name=name, status="skip",
+                                       message="Forced (non-homogeneous) ODE — energy is not conserved by design; check skipped.",
+                                       details={})
+
         coeffs = _get_coeffs(components)
         if coeffs is None:
             return VerificationSource(name=name, status="skip",
@@ -333,38 +389,40 @@ def _check_energy(components, result: Dict) -> VerificationSource:
         c = coeffs["c"]
         b = coeffs["b"]
 
-        # E(t) = 0.5*v² + 0.5*c*x²
+        # E(t) = 0.5*v² + 0.5*c*x²  (kinetic + potential)
         E = 0.5 * v ** 2 + 0.5 * c * x ** 2
         E0 = float(E[0])
 
         if abs(E0) < 1e-12:
             return VerificationSource(name=name, status="skip",
-                                       message="Initial energy ≈ 0; cannot normalise.",
+                                       message="Initial energy is ~0; cannot normalise.",
                                        details={})
 
         delta_E = np.abs(E - E0)
+        max_err  = float(np.max(delta_E))
+        mean_err = float(np.mean(delta_E))
 
         if abs(b) < 1e-9:
-            # Undamped: pass if max deviation < 2%
+            # Undamped conservative system: energy must stay constant (< 2% drift)
             max_rel = float(np.max(delta_E) / abs(E0))
             status = "pass" if max_rel < 0.02 else "fail"
-            conf = max(0.0, (1.0 - max_rel / 0.02) * 100.0) if status == "pass" else max(0.0, (1.0 - max_rel) * 100.0)
-            msg = f"Undamped — max ΔE/E₀ = {max_rel:.3e}. {'PASS (<2%)' if status=='pass' else 'FAIL (≥2%)'}"
-            max_err = float(np.max(delta_E))
-            mean_err = float(np.mean(delta_E))
+            if status == "pass":
+                conf = max(0.0, (1.0 - max_rel / 0.02) * 100.0)
+            else:
+                conf = max(0.0, 100.0 * float(np.exp(-max_rel / 0.02)))
+            msg = f"Undamped homogeneous — max dE/E0 = {max_rel:.3e}. {'PASS (<2%)' if status == 'pass' else 'FAIL (>=2%)'}"
         else:
-            # Damped: pass if <5% of steps have ΔE > 1e-6 unexpectedly
-            # Use step-to-step energy differences
-            step_delta = np.abs(np.diff(E))
-            bad_steps = int(np.sum(step_delta > 1e-6))
-            total_steps = len(step_delta)
-            bad_frac = bad_steps / max(total_steps, 1)
-            status = "pass" if bad_frac < 0.05 else "fail"
-            conf = max(0.0, (1.0 - bad_frac / 0.05) * 100.0)
-            msg = (f"Damped — {bad_steps}/{total_steps} steps have |ΔE| > 1e-6 "
-                   f"({bad_frac*100:.1f}%). Threshold 5%.")
-            max_err = float(np.max(delta_E))
-            mean_err = float(np.mean(delta_E))
+            # Damped homogeneous system: energy must be monotonically non-increasing.
+            # Allow small numerical noise (< 0.1% of E0 per step).
+            noise_tol = max(abs(E0) * 0.001, 1e-8)
+            increases = np.diff(E)
+            bad_increases = int(np.sum(increases > noise_tol))
+            total_steps = len(increases)
+            bad_frac = bad_increases / max(total_steps, 1)
+            status = "pass" if bad_frac < 0.02 else "fail"
+            conf = max(0.0, (1.0 - bad_frac / 0.02) * 100.0)
+            msg = (f"Damped homogeneous — {bad_increases}/{total_steps} steps had unexpected energy increase "
+                   f"({bad_frac * 100:.1f}%). Threshold 2%.")
 
         return VerificationSource(
             name=name,
@@ -400,6 +458,20 @@ def _check_cross_method(components, result: Dict, ic: Dict, time_span) -> Verifi
         t0 = float(time_span[0])
         t_end = float(time_span[1])
 
+        # Pre-compile forcing function once, outside the ODE loop
+        _forcing_fn = None
+        if not components.is_homogeneous and components.forcing_function:
+            try:
+                import sympy as sp
+                _t_sym   = sp.Symbol("t")
+                _f_expr  = sp.sympify(str(components.forcing_function),
+                                      locals={"t": _t_sym, "sin": sp.sin,
+                                              "cos": sp.cos, "exp": sp.exp,
+                                              "sqrt": sp.sqrt})
+                _forcing_fn = sp.lambdify(_t_sym, _f_expr, modules="numpy")
+            except Exception:
+                _forcing_fn = None
+
         # Build ODE function from components
         def ode_fn(t, y):
             try:
@@ -410,16 +482,12 @@ def _check_cross_method(components, result: Dict, ic: Dict, time_span) -> Verifi
             coeffs = _get_coeffs(components)
             if coeffs:
                 a, b, c = coeffs["a"], coeffs["b"], coeffs["c"]
-                # Get forcing value
                 forcing = 0.0
-                try:
-                    if not components.is_homogeneous:
-                        import sympy as sp
-                        t_sym = sp.Symbol("t")
-                        f_expr = components.forcing_function
-                        forcing = float(f_expr.subs(t_sym, t))
-                except Exception:
-                    pass
+                if _forcing_fn is not None:
+                    try:
+                        forcing = float(np.real(_forcing_fn(t)))
+                    except Exception:
+                        forcing = 0.0
                 # x'' = (forcing - b*x' - c*x) / a
                 return [y[1], (forcing - b * y[1] - c * y[0]) / a]
             raise ValueError("Cannot build ODE function")
@@ -500,13 +568,16 @@ def _check_residual(components, result: Dict) -> VerificationSource:
 
         # Compute forcing at each t
         f_arr = np.zeros_like(t_arr)
-        if not components.is_homogeneous:
+        if not components.is_homogeneous and components.forcing_function:
             try:
                 import sympy as sp
-                t_sym = sp.Symbol("t")
-                f_expr = components.forcing_function
-                f_lam = sp.lambdify(t_sym, f_expr, modules=["numpy"])
-                f_arr = np.array([float(f_lam(ti)) for ti in t_arr])
+                t_sym  = sp.Symbol("t")
+                f_expr = sp.sympify(str(components.forcing_function),
+                                    locals={"t": t_sym, "sin": sp.sin,
+                                            "cos": sp.cos, "exp": sp.exp,
+                                            "sqrt": sp.sqrt})
+                f_lam  = sp.lambdify(t_sym, f_expr, modules=["numpy"])
+                f_arr  = np.array([float(np.real(f_lam(ti))) for ti in t_arr])
             except Exception:
                 pass
 
@@ -525,9 +596,11 @@ def _check_residual(components, result: Dict) -> VerificationSource:
         max_res = float(np.max(interior))
         scale = max(float(np.max(np.abs(x_interior))), 1e-10)
         norm_mean = mean_res / scale
-        conf = max(0.0, (1.0 - norm_mean / 0.05) * 100.0)
-
         status = "pass" if norm_mean < 0.05 else "fail"
+        if status == "pass":
+            conf = max(0.0, (1.0 - norm_mean / 0.05) * 100.0)
+        else:
+            conf = max(0.0, 100.0 * float(np.exp(-norm_mean / 0.05)))
         msg = (f"Mean residual / max|x| = {norm_mean:.3e}. "
                f"Threshold 5%. Confidence {conf:.1f}%.")
 
