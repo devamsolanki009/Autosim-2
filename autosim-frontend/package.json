@@ -9,7 +9,9 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@types/katex": "^0.16.8",
     "@types/react-plotly.js": "^2.6.4",
+    "katex": "^0.16.45",
     "next": "16.1.6",
     "plotly.js": "^3.4.0",
     "react": "19.2.3",

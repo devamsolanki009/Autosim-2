@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import type { SolveResult, SolveStep, VerificationReport, VerificationSource } from "../page";
+import LatexRenderer from "./LatexRenderer";
 
 export interface SolverCodeResult {
   parsed: {
@@ -700,8 +701,8 @@ export default function ResultTabs({ solved, method, equation, useLlm, solveResu
                               <pre style={{ fontSize: "0.82rem", color: "var(--text-secondary)", marginBottom: 10, marginLeft: 38, fontFamily: "var(--font-mono)", whiteSpace: "pre-wrap", margin: "0 0 10px 38px", lineHeight: 1.6 }}>{step.equation}</pre>
                             )}
                             {step.latex && (
-                              <div style={{ marginLeft: 38, padding: "10px 16px", borderRadius: 8, background: "rgba(34,211,238,0.05)", border: "1px solid rgba(34,211,238,0.15)", fontFamily: "var(--font-mono)", fontSize: "0.85rem", color: "var(--neon-cyan)", overflowX: "auto", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-                                {step.latex}
+                              <div style={{ marginLeft: 38, padding: "10px 16px", borderRadius: 8, background: "rgba(34,211,238,0.05)", border: "1px solid rgba(34,211,238,0.15)", overflowX: "auto" }}>
+                                <LatexRenderer latex={step.latex} color="var(--neon-cyan)" />
                               </div>
                             )}
                           </div>
@@ -788,8 +789,8 @@ export default function ResultTabs({ solved, method, equation, useLlm, solveResu
                               <pre style={{ fontSize: "0.82rem", color: "var(--text-secondary)", marginBottom: 10, marginLeft: 38, fontFamily: "var(--font-mono)", whiteSpace: "pre-wrap", margin: "0 0 10px 38px", lineHeight: 1.6 }}>{step.equation}</pre>
                             )}
                             {step.latex && (
-                              <div style={{ marginLeft: 38, padding: "10px 16px", borderRadius: 8, background: "rgba(52,211,153,0.04)", border: "1px solid rgba(52,211,153,0.15)", fontFamily: "var(--font-mono)", fontSize: "0.85rem", color: "var(--neon-green)", overflowX: "auto", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-                                {step.latex}
+                              <div style={{ marginLeft: 38, padding: "10px 16px", borderRadius: 8, background: "rgba(52,211,153,0.04)", border: "1px solid rgba(52,211,153,0.15)", overflowX: "auto" }}>
+                                <LatexRenderer latex={step.latex} color="var(--neon-green)" />
                               </div>
                             )}
                           </div>
