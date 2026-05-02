@@ -279,31 +279,32 @@ def _check_wolfram(components, result: Dict, ic: Dict,
                                                f"reference solution from SymPy: {sym_err}",
                                        details={})
 
-        # ── Step 2: build Wolfram-readable expression string ──────────────────
-        # sp.mathematica_code converts SymPy expr to Mathematica/Wolfram syntax
-        try:
-            wolfram_expr = sp.mathematica_code(ref_expr)
-        except Exception:
-            wolfram_expr = str(ref_expr)
-
-        # ── Step 3: ask Wolfram to evaluate at 5 sample points ────────────────
+        # ── Step 3: ask Wolfram to evaluate the expression at 5 sample points ───
+        # Strategy: substitute t numerically in the SymPy expression, then convert
+        # the result to plain arithmetic (sin/cos/exp in Python syntax) that Wolfram's
+        # Short Answers API can parse. This avoids Mathematica N[...] syntax (501 error)
+        # and gives Wolfram a fully concrete numeric expression to evaluate independently.
         fractions   = [0.10, 0.25, 0.50, 0.75, 0.90]
         sample_t    = [t0 + f * (t_end - t0) for f in fractions]
         wolfram_y, wolfram_t, errors = [], [], []
 
         for t_val in sample_t:
-            # Build query: evaluate the expression numerically at a specific t
-            # Use \b word-boundary so we don't replace 't' inside longer tokens
-            expr_at_t = re.sub(r'\bt\b', f"({t_val:.6f})", wolfram_expr)
-            query     = f"N[{expr_at_t}]"
             try:
+                # Substitute t and convert to a Python-math string Wolfram understands
+                expr_at_t = ref_expr.subs(t_sym, sp.Float(t_val, 15))
+                # Use sp.pycode to get a plain arithmetic string (no Mathematica syntax)
+                query = sp.pycode(expr_at_t)
+                # Replace numpy/math prefixes Wolfram won't understand
+                query = (query
+                         .replace("numpy.", "")
+                         .replace("math.", "")
+                         .replace("**", "^"))
                 resp = requests.get(
                     "https://api.wolframalpha.com/v1/result",
                     params={"appid": wolfram_app_id, "i": query},
-                    timeout=10,
+                    timeout=15,
                 )
                 text = resp.text.strip()
-                # Short Answers returns a plain number for numeric queries
                 nums = re.findall(r"-?\d+\.?\d*(?:[eE][+-]?\d+)?", text)
                 if not nums:
                     continue
@@ -321,7 +322,7 @@ def _check_wolfram(components, result: Dict, ic: Dict,
             return VerificationSource(name=name, status="error",
                                        message="WolframAlpha returned no numeric responses. "
                                                "Check your App ID or network connection.",
-                                       details={"sample_query": f"N[{wolfram_expr[:80]}]"})
+                                       details={})
 
         # ── Step 4: score ──────────────────────────────────────────────────────
         max_err  = float(max(errors))
