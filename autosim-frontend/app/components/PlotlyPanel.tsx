@@ -1,13 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useMemo, useState } from "react";
+import type { Data } from "plotly.js";
+import InteractivePlot from "./InteractivePlot";
 
 // Mock data generator for demo visualization
 function generateMockData(method: string, tEnd: number) {
   const t = Array.from({ length: 300 }, (_, i) => (i / 299) * tEnd);
-
-  let x: number[];
-  let dxdt: number[];
 
   const methodSeed: Record<string, [number, number, number]> = {
     symbolic:  [1, 0.1, 1],
@@ -21,13 +20,13 @@ function generateMockData(method: string, tEnd: number) {
 
   const [A, zeta, omega] = methodSeed[method] ?? [1, 0.1, 1];
 
-  x = t.map(
+  const x = t.map(
     (ti) =>
       A * Math.exp(-zeta * omega * ti) *
       (Math.cos(Math.sqrt(Math.max(0, 1 - zeta * zeta)) * omega * ti) +
         0.3 * Math.sin(ti * 0.7))
   );
-  dxdt = t.map((ti, i) => {
+  const dxdt = t.map((ti, i) => {
     if (i === 0) return 0;
     return (x[i] - x[i - 1]) / (t[i] - t[i - 1]);
   });
@@ -54,299 +53,80 @@ interface PlotlyPanelProps {
 }
 
 export default function PlotlyPanel({ method, equation, tEnd, solved, solveResult }: PlotlyPanelProps) {
-  const timeCanvasRef = useRef<HTMLCanvasElement>(null);
-  const phaseCanvasRef = useRef<HTMLCanvasElement>(null);
   const [activeView, setActiveView] = useState<"time" | "phase" | "both">("both");
 
-  useEffect(() => {
-    if (!solved) return;
-
-    // Use real data if available, otherwise fall back to mock
-    let t: number[], x: number[], dxdt: number[];
-    if (solveResult && solveResult.t.length > 0) {
-      t = solveResult.t;
-      x = solveResult.y[0];
-      dxdt = solveResult.y.length > 1 ? solveResult.y[1] : t.map((_, i) => {
-        if (i === 0) return 0;
-        return (x[i] - x[i - 1]) / (t[i] - t[i - 1]);
-      });
-    } else {
-      const mock = generateMockData(method, tEnd);
-      t = mock.t; x = mock.x; dxdt = mock.dxdt;
-    }
-    const color = METHOD_COLORS[method] ?? "#a78bfa";
-
-    // Wait one animation frame so the browser has laid out the newly-visible
-    // canvases before we read offsetWidth/offsetHeight (avoids drawing at 0×0
-    // when a canvas container just appeared after a tab switch).
-    let rafId: number;
-
-    // Draw time series
-    const drawTimeSeries = () => {
-      const canvas = timeCanvasRef.current;
-      if (!canvas) return;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-
-      // getBoundingClientRect is reliable even before offsetWidth settles
-      const rect = canvas.getBoundingClientRect();
-      const W = rect.width || canvas.offsetWidth;
-      const H = rect.height || canvas.offsetHeight;
-      if (W === 0 || H === 0) return;
-
-      canvas.width = W * window.devicePixelRatio;
-      canvas.height = H * window.devicePixelRatio;
-      ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
-      const pad = { top: 20, bottom: 40, left: 50, right: 20 };
-      const pw = W - pad.left - pad.right;
-      const ph = H - pad.top - pad.bottom;
-
-      // Background
-      ctx.fillStyle = "rgba(3,7,18,0.0)";
-      ctx.fillRect(0, 0, W, H);
-
-      // Grid lines
-      ctx.strokeStyle = "rgba(99,102,241,0.08)";
-      ctx.lineWidth = 1;
-      for (let i = 0; i <= 8; i++) {
-        const gx = pad.left + (pw / 8) * i;
-        ctx.beginPath();
-        ctx.moveTo(gx, pad.top);
-        ctx.lineTo(gx, pad.top + ph);
-        ctx.stroke();
-      }
-      for (let i = 0; i <= 5; i++) {
-        const gy = pad.top + (ph / 5) * i;
-        ctx.beginPath();
-        ctx.moveTo(pad.left, gy);
-        ctx.lineTo(pad.left + pw, gy);
-        ctx.stroke();
-      }
-
-      // Axes
-      ctx.strokeStyle = "rgba(148,163,184,0.3)";
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(pad.left, pad.top);
-      ctx.lineTo(pad.left, pad.top + ph);
-      ctx.lineTo(pad.left + pw, pad.top + ph);
-      ctx.stroke();
-
-      const xMin = Math.min(...t);
-      const xMax = Math.max(...t);
-      const yMin = Math.min(...x);
-      const yMax = Math.max(...x);
-      const yRange = yMax - yMin || 1;
-
-      const toCanvasX = (v: number) => pad.left + ((v - xMin) / (xMax - xMin)) * pw;
-      const toCanvasY = (v: number) => pad.top + ph - ((v - yMin) / yRange) * ph;
-
-      // Zero line
-      if (yMin < 0 && yMax > 0) {
-        ctx.strokeStyle = "rgba(148,163,184,0.15)";
-        ctx.lineWidth = 1;
-        ctx.setLineDash([4, 4]);
-        const zy = toCanvasY(0);
-        ctx.beginPath();
-        ctx.moveTo(pad.left, zy);
-        ctx.lineTo(pad.left + pw, zy);
-        ctx.stroke();
-        ctx.setLineDash([]);
-      }
-
-      // Glow effect under curve
-      const gradient = ctx.createLinearGradient(0, pad.top, 0, pad.top + ph);
-      gradient.addColorStop(0, color + "33");
-      gradient.addColorStop(1, color + "00");
-      ctx.beginPath();
-      ctx.moveTo(toCanvasX(t[0]), pad.top + ph);
-      for (let i = 0; i < t.length; i++) {
-        ctx.lineTo(toCanvasX(t[i]), toCanvasY(x[i]));
-      }
-      ctx.lineTo(toCanvasX(t[t.length - 1]), pad.top + ph);
-      ctx.closePath();
-      ctx.fillStyle = gradient;
-      ctx.fill();
-
-      // Main curve
-      ctx.beginPath();
-      ctx.moveTo(toCanvasX(t[0]), toCanvasY(x[0]));
-      for (let i = 1; i < t.length; i++) {
-        ctx.lineTo(toCanvasX(t[i]), toCanvasY(x[i]));
-      }
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 2.5;
-      ctx.shadowBlur = 12;
-      ctx.shadowColor = color;
-      ctx.stroke();
-      ctx.shadowBlur = 0;
-
-      // Axis labels
-      ctx.fillStyle = "rgba(148,163,184,0.7)";
-      ctx.font = "11px JetBrains Mono, monospace";
-      ctx.textAlign = "center";
-      ctx.fillText("t", pad.left + pw / 2, H - 6);
-      ctx.save();
-      ctx.translate(12, pad.top + ph / 2);
-      ctx.rotate(-Math.PI / 2);
-      ctx.fillText("x(t)", 0, 0);
-      ctx.restore();
-
-      // X-axis ticks
-      for (let i = 0; i <= 5; i++) {
-        const tv = xMin + (i / 5) * (xMax - xMin);
-        ctx.fillText(tv.toFixed(0), toCanvasX(tv), pad.top + ph + 16);
-      }
-    };
-
-    // Draw phase portrait
-    const drawPhasePortrait = () => {
-      const canvas = phaseCanvasRef.current;
-      if (!canvas) return;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-
-      const rect = canvas.getBoundingClientRect();
-      const W = rect.width || canvas.offsetWidth;
-      const H = rect.height || canvas.offsetHeight;
-      if (W === 0 || H === 0) return;
-
-      canvas.width = W * window.devicePixelRatio;
-      canvas.height = H * window.devicePixelRatio;
-      ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
-      const pad = { top: 20, bottom: 40, left: 50, right: 20 };
-      const pw = W - pad.left - pad.right;
-      const ph = H - pad.top - pad.bottom;
-
-      ctx.fillStyle = "rgba(3,7,18,0.0)";
-      ctx.fillRect(0, 0, W, H);
-
-      // Grid
-      ctx.strokeStyle = "rgba(99,102,241,0.08)";
-      ctx.lineWidth = 1;
-      for (let i = 0; i <= 6; i++) {
-        ctx.beginPath();
-        ctx.moveTo(pad.left + (pw / 6) * i, pad.top);
-        ctx.lineTo(pad.left + (pw / 6) * i, pad.top + ph);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(pad.left, pad.top + (ph / 6) * i);
-        ctx.lineTo(pad.left + pw, pad.top + (ph / 6) * i);
-        ctx.stroke();
-      }
-
-      // Axes
-      ctx.strokeStyle = "rgba(148,163,184,0.3)";
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(pad.left, pad.top);
-      ctx.lineTo(pad.left, pad.top + ph);
-      ctx.lineTo(pad.left + pw, pad.top + ph);
-      ctx.stroke();
-
-      const xArr = x;
-      const yArr = dxdt;
-      const xMin = Math.min(...xArr);
-      const xMax = Math.max(...xArr);
-      const yMin = Math.min(...yArr);
-      const yMax = Math.max(...yArr);
-
-      const toX = (v: number) => pad.left + ((v - xMin) / (xMax - xMin || 1)) * pw;
-      const toY = (v: number) => pad.top + ph - ((v - yMin) / (yMax - yMin || 1)) * ph;
-
-      // Gradient path
-      ctx.beginPath();
-      ctx.moveTo(toX(xArr[0]), toY(yArr[0]));
-      for (let i = 1; i < xArr.length; i++) {
-        ctx.lineTo(toX(xArr[i]), toY(yArr[i]));
-      }
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 2;
-      ctx.shadowBlur = 10;
-      ctx.shadowColor = color;
-      ctx.stroke();
-      ctx.shadowBlur = 0;
-
-      // Arrow at tail
-      const li = xArr.length - 1;
-      const lx = toX(xArr[li]);
-      const ly = toY(yArr[li]);
-      const px2 = toX(xArr[li - 5]);
-      const py2 = toY(yArr[li - 5]);
-      const angle = Math.atan2(ly - py2, lx - px2);
-      ctx.save();
-      ctx.translate(lx, ly);
-      ctx.rotate(angle);
-      ctx.fillStyle = color;
-      ctx.beginPath();
-      ctx.moveTo(0, 0);
-      ctx.lineTo(-9, -4);
-      ctx.lineTo(-9, 4);
-      ctx.closePath();
-      ctx.fill();
-      ctx.restore();
-
-      // Labels
-      ctx.fillStyle = "rgba(148,163,184,0.7)";
-      ctx.font = "11px JetBrains Mono, monospace";
-      ctx.textAlign = "center";
-      ctx.fillText("x", pad.left + pw / 2, H - 6);
-      ctx.save();
-      ctx.translate(12, pad.top + ph / 2);
-      ctx.rotate(-Math.PI / 2);
-      ctx.fillText("x'", 0, 0);
-      ctx.restore();
-    };
-
-    rafId = requestAnimationFrame(() => {
-      drawTimeSeries();
-      drawPhasePortrait();
-    });
-
-    return () => cancelAnimationFrame(rafId);
-  }, [solved, method, tEnd, solveResult, activeView]);
-
   const color = METHOD_COLORS[method] ?? "#a78bfa";
+
+  const { t, x, dxdt } = useMemo(() => {
+    if (!solved) return { t: [], x: [], dxdt: [] };
+    if (solveResult && solveResult.t.length > 0) {
+      const tArr = solveResult.t;
+      const xArr = solveResult.y[0];
+      const dArr = solveResult.y.length > 1
+        ? solveResult.y[1]
+        : tArr.map((_, i) => i === 0 ? 0 : (xArr[i] - xArr[i - 1]) / (tArr[i] - tArr[i - 1]));
+      return { t: tArr, x: xArr, dxdt: dArr };
+    }
+    return generateMockData(method, tEnd);
+  }, [solved, method, tEnd, solveResult]);
+
+  // Time series trace
+  const timeTraces: Data[] = useMemo(() => [
+    {
+      x: t,
+      y: x,
+      type: "scatter",
+      mode: "lines",
+      name: "x(t)",
+      line: { color, width: 2.5, shape: "spline" },
+      fill: "tozeroy",
+      fillcolor: color + "18",
+      hovertemplate: "t = %{x:.4f}<br>x = %{y:.6f}<extra></extra>",
+    },
+  ], [t, x, color]);
+
+  // Phase portrait trace
+  const phaseTraces: Data[] = useMemo(() => {
+    const traces: Data[] = [
+      {
+        x,
+        y: dxdt,
+        type: "scatter",
+        mode: "lines",
+        name: "Phase",
+        line: { color, width: 2, shape: "spline" },
+        hovertemplate: "x = %{x:.4f}<br>x′ = %{y:.4f}<extra></extra>",
+      },
+    ];
+    // Arrow marker at end of trajectory
+    if (x.length > 5) {
+      traces.push({
+        x: [x[x.length - 1]],
+        y: [dxdt[dxdt.length - 1]],
+        type: "scatter",
+        mode: "markers",
+        name: "End",
+        marker: { color, size: 10, symbol: "triangle-right" },
+        hoverinfo: "skip",
+        showlegend: false,
+      } as Data);
+    }
+    return traces;
+  }, [x, dxdt, color]);
 
   return (
     <section
       id="visualization"
-      style={{
-        padding: "0 24px 80px",
-        maxWidth: 1400,
-        margin: "0 auto",
-      }}
+      style={{ padding: "0 24px 80px", maxWidth: 1400, margin: "0 auto" }}
     >
       {/* Section header */}
       <div style={{ marginBottom: 28 }}>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            marginBottom: 8,
-          }}
-        >
-          <span
-            style={{
-              fontFamily: "var(--font-mono)",
-              fontSize: "0.75rem",
-              color: "var(--neon-cyan)",
-              letterSpacing: "2px",
-              textTransform: "uppercase",
-            }}
-          >
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.75rem", color: "var(--neon-cyan)", letterSpacing: "2px", textTransform: "uppercase" }}>
             02 — Visualization Panel
           </span>
         </div>
-        <h2
-          style={{
-            fontSize: "clamp(1.6rem, 3vw, 2.2rem)",
-            fontWeight: 700,
-            letterSpacing: "-0.02em",
-            marginBottom: 8,
-          }}
-        >
+        <h2 style={{ fontSize: "clamp(1.6rem, 3vw, 2.2rem)", fontWeight: 700, letterSpacing: "-0.02em", marginBottom: 8 }}>
           Solution Graphs
         </h2>
         <p style={{ color: "var(--text-secondary)", fontSize: "0.95rem" }}>
@@ -356,26 +136,9 @@ export default function PlotlyPanel({ method, equation, tEnd, solved, solveResul
 
       <div className="glass-card" style={{ padding: "28px" }}>
         {/* Toolbar */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            marginBottom: 20,
-            flexWrap: "wrap",
-            gap: 12,
-          }}
-        >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div
-              style={{
-                width: 12,
-                height: 12,
-                borderRadius: "50%",
-                background: color,
-                boxShadow: `0 0 12px ${color}`,
-              }}
-            />
+            <div style={{ width: 12, height: 12, borderRadius: "50%", background: color, boxShadow: `0 0 12px ${color}` }} />
             <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.85rem", color: "var(--text-secondary)" }}>
               {solved ? equation : "No solution yet"}
             </span>
@@ -395,36 +158,12 @@ export default function PlotlyPanel({ method, equation, tEnd, solved, solveResul
         </div>
 
         {!solved ? (
-          <div
-            style={{
-              height: 320,
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 16,
-            }}
-          >
-            {/* Idle placeholder */}
-            <div
-              style={{
-                width: 64,
-                height: 64,
-                borderRadius: "50%",
-                background: "rgba(99,102,241,0.08)",
-                border: "1px solid rgba(99,102,241,0.2)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: "1.8rem",
-              }}
-            >
+          <div style={{ height: 320, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16 }}>
+            <div style={{ width: 64, height: 64, borderRadius: "50%", background: "rgba(99,102,241,0.08)", border: "1px solid rgba(99,102,241,0.2)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.8rem" }}>
               📊
             </div>
             <div style={{ textAlign: "center" }}>
-              <p style={{ fontSize: "0.95rem", color: "var(--text-secondary)", marginBottom: 4 }}>
-                No solution yet
-              </p>
+              <p style={{ fontSize: "0.95rem", color: "var(--text-secondary)", marginBottom: 4 }}>No solution yet</p>
               <p style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
                 Configure the equation above and click{" "}
                 <strong style={{ color: "var(--neon-purple)" }}>Solve ODE</strong>
@@ -432,74 +171,37 @@ export default function PlotlyPanel({ method, equation, tEnd, solved, solveResul
             </div>
           </div>
         ) : (
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns:
-                activeView === "both"
-                  ? "1fr 1fr"
-                  : "1fr",
-              gap: 20,
-            }}
-          >
+          <div style={{ display: "grid", gridTemplateColumns: activeView === "both" ? "1fr 1fr" : "1fr", gap: 20 }}>
             {(activeView === "time" || activeView === "both") && (
               <div>
-                <div
-                  style={{
-                    fontSize: "0.78rem",
-                    fontFamily: "var(--font-mono)",
-                    color: "var(--text-muted)",
-                    textTransform: "uppercase",
-                    letterSpacing: "1px",
-                    marginBottom: 8,
-                  }}
-                >
+                <div style={{ fontSize: "0.78rem", fontFamily: "var(--font-mono)", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8 }}>
                   x(t) vs. Time
                 </div>
-                <div
-                  style={{
-                    borderRadius: 12,
-                    background: "rgba(3,7,18,0.5)",
-                    border: "1px solid rgba(99,102,241,0.12)",
-                    overflow: "hidden",
-                    height: 280,
+                <InteractivePlot
+                  data={timeTraces}
+                  layout={{
+                    xaxis: { title: { text: "t", font: { size: 11 } } },
+                    yaxis: { title: { text: "x(t)", font: { size: 11 } } },
+                    showlegend: false,
                   }}
-                >
-                  <canvas
-                    ref={timeCanvasRef}
-                    style={{ width: "100%", height: "100%" }}
-                  />
-                </div>
+                  height={280}
+                />
               </div>
             )}
             {(activeView === "phase" || activeView === "both") && (
               <div>
-                <div
-                  style={{
-                    fontSize: "0.78rem",
-                    fontFamily: "var(--font-mono)",
-                    color: "var(--text-muted)",
-                    textTransform: "uppercase",
-                    letterSpacing: "1px",
-                    marginBottom: 8,
-                  }}
-                >
+                <div style={{ fontSize: "0.78rem", fontFamily: "var(--font-mono)", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8 }}>
                   Phase Portrait (x vs. x&apos;)
                 </div>
-                <div
-                  style={{
-                    borderRadius: 12,
-                    background: "rgba(3,7,18,0.5)",
-                    border: "1px solid rgba(99,102,241,0.12)",
-                    overflow: "hidden",
-                    height: 280,
+                <InteractivePlot
+                  data={phaseTraces}
+                  layout={{
+                    xaxis: { title: { text: "x", font: { size: 11 } } },
+                    yaxis: { title: { text: "x′", font: { size: 11 } } },
+                    showlegend: false,
                   }}
-                >
-                  <canvas
-                    ref={phaseCanvasRef}
-                    style={{ width: "100%", height: "100%" }}
-                  />
-                </div>
+                  height={280}
+                />
               </div>
             )}
           </div>
@@ -507,41 +209,18 @@ export default function PlotlyPanel({ method, equation, tEnd, solved, solveResul
 
         {/* Stats row */}
         {solved && (
-          <div
-            style={{
-              marginTop: 20,
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
-              gap: 12,
-            }}
-          >
+          <div style={{ marginTop: 20, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 12 }}>
             {[
-              { label: "Method", value: method.toUpperCase(), color: "var(--neon-purple)" },
-              { label: "Time Points", value: "300", color: "var(--neon-cyan)" },
-              { label: "t Range", value: `[0, ${tEnd}]`, color: "var(--neon-green)" },
-              { label: "State Dim", value: "2", color: "var(--neon-yellow)" },
+              { label: "Method",      value: method.toUpperCase(),    color: "var(--neon-purple)" },
+              { label: "Time Points", value: `${t.length}`,           color: "var(--neon-cyan)"   },
+              { label: "t Range",     value: `[0, ${tEnd}]`,          color: "var(--neon-green)"  },
+              { label: "State Dim",   value: "2",                     color: "var(--neon-yellow)" },
             ].map((s) => (
               <div key={s.label} className="stat-card">
-                <div
-                  style={{
-                    fontSize: "0.68rem",
-                    color: "var(--text-muted)",
-                    fontFamily: "var(--font-mono)",
-                    textTransform: "uppercase",
-                    letterSpacing: "1px",
-                    marginBottom: 4,
-                  }}
-                >
+                <div style={{ fontSize: "0.68rem", color: "var(--text-muted)", fontFamily: "var(--font-mono)", textTransform: "uppercase", letterSpacing: "1px", marginBottom: 4 }}>
                   {s.label}
                 </div>
-                <div
-                  style={{
-                    fontSize: "1rem",
-                    fontWeight: 700,
-                    fontFamily: "var(--font-mono)",
-                    color: s.color,
-                  }}
-                >
+                <div style={{ fontSize: "1rem", fontWeight: 700, fontFamily: "var(--font-mono)", color: s.color }}>
                   {s.value}
                 </div>
               </div>

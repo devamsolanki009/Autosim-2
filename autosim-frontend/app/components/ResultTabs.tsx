@@ -1,8 +1,10 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useMemo } from "react";
+import type { Data } from "plotly.js";
 import type { SolveResult, SolveStep, VerificationReport, VerificationSource } from "../page";
 import LatexRenderer from "./LatexRenderer";
+import InteractivePlot from "./InteractivePlot";
 
 export interface SolverCodeResult {
   parsed: {
@@ -86,113 +88,82 @@ function fmtNum(v: number | null | undefined): string {
   return v.toPrecision(4);
 }
 
-// Canvas overlay chart (solution blue, reference red-dashed)
+// Interactive overlay chart (solution blue, reference red-dashed)
 function OverlayChart({ refT, refY, solveResult }: { refT: number[]; refY: number[]; solveResult?: SolveResult | null }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || !refT.length) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    canvas.width = canvas.offsetWidth * window.devicePixelRatio;
-    canvas.height = canvas.offsetHeight * window.devicePixelRatio;
-    ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
-    const W = canvas.offsetWidth, H = canvas.offsetHeight;
-    const pad = { top: 12, bottom: 28, left: 40, right: 12 };
-    const pw = W - pad.left - pad.right, ph = H - pad.top - pad.bottom;
-    ctx.clearRect(0, 0, W, H);
-    // grid
-    ctx.strokeStyle = "rgba(99,102,241,0.08)";
-    ctx.lineWidth = 1;
-    for (let i = 0; i <= 4; i++) {
-      ctx.beginPath(); ctx.moveTo(pad.left, pad.top + (ph / 4) * i); ctx.lineTo(pad.left + pw, pad.top + (ph / 4) * i); ctx.stroke();
-    }
-    const userT = solveResult?.t ?? refT;
-    const userX = solveResult?.y?.[0] ?? refY;
-    const allY = [...refY, ...userX];
-    const tMin = refT[0], tMax = refT[refT.length - 1];
-    const yMin = Math.min(...allY), yMax = Math.max(...allY);
-    const yRange = yMax - yMin || 1;
-    const tx = (v: number) => pad.left + ((v - tMin) / (tMax - tMin || 1)) * pw;
-    const ty = (v: number) => pad.top + ph - ((v - yMin) / yRange) * ph;
-    // user solution — blue
-    if (userT.length > 1) {
-      ctx.beginPath();
-      ctx.moveTo(tx(userT[0]), ty(userX[0]));
-      for (let i = 1; i < userT.length; i++) ctx.lineTo(tx(userT[i]), ty(userX[i]));
-      ctx.strokeStyle = "#2563eb"; ctx.lineWidth = 2; ctx.shadowBlur = 6; ctx.shadowColor = "#2563eb"; ctx.stroke(); ctx.shadowBlur = 0;
-    }
-    // reference — red dashed
-    ctx.setLineDash([5, 4]);
-    ctx.beginPath();
-    ctx.moveTo(tx(refT[0]), ty(refY[0]));
-    for (let i = 1; i < refT.length; i++) ctx.lineTo(tx(refT[i]), ty(refY[i]));
-    ctx.strokeStyle = "#dc2626"; ctx.lineWidth = 1.5; ctx.stroke();
-    ctx.setLineDash([]);
-    // labels
-    ctx.fillStyle = "rgba(148,163,184,0.6)"; ctx.font = "10px JetBrains Mono, monospace"; ctx.textAlign = "center";
-    ctx.fillText("t", pad.left + pw / 2, H - 4);
-  }, [refT, refY, solveResult]);
+  const userT = solveResult?.t ?? refT;
+  const userX = solveResult?.y?.[0] ?? refY;
+  const traces: Data[] = [
+    {
+      x: userT,
+      y: userX,
+      type: "scatter",
+      mode: "lines",
+      name: "Your solution",
+      line: { color: "#60a5fa", width: 2 },
+      hovertemplate: "t=%{x:.4f}<br>x=%{y:.6f}<extra>Your solution</extra>",
+    },
+    {
+      x: refT,
+      y: refY,
+      type: "scatter",
+      mode: "lines",
+      name: "Reference",
+      line: { color: "#f87171", width: 1.5, dash: "dash" },
+      hovertemplate: "t=%{x:.4f}<br>x=%{y:.6f}<extra>Reference</extra>",
+    },
+  ];
   return (
     <div style={{ marginTop: 12 }}>
-      <div style={{ display: "flex", gap: 14, marginBottom: 6, fontSize: "0.7rem", fontFamily: "var(--font-mono)" }}>
-        <span style={{ color: "#60a5fa" }}>── Your solution</span>
-        <span style={{ color: "#f87171" }}>- - Reference</span>
-      </div>
-      <div style={{ borderRadius: 8, border: "1px solid rgba(99,102,241,0.15)", background: "rgba(3,7,18,0.6)", height: 130, overflow: "hidden" }}>
-        <canvas ref={canvasRef} style={{ width: "100%", height: "100%" }} />
-      </div>
+      <InteractivePlot
+        data={traces}
+        layout={{
+          xaxis: { title: { text: "t", font: { size: 10 } } },
+          yaxis: { title: { text: "x", font: { size: 10 } } },
+          legend: { orientation: "h", y: -0.25, x: 0, font: { size: 10 } },
+          margin: { t: 12, b: 48, l: 48, r: 12 },
+          showlegend: true,
+        }}
+        height={160}
+      />
     </div>
   );
 }
 
-// Canvas energy chart
+// Interactive energy chart
 function EnergyChart({ refT, refY, e0 }: { refT: number[]; refY: number[]; e0?: number }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || !refT.length) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    canvas.width = canvas.offsetWidth * window.devicePixelRatio;
-    canvas.height = canvas.offsetHeight * window.devicePixelRatio;
-    ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
-    const W = canvas.offsetWidth, H = canvas.offsetHeight;
-    const pad = { top: 12, bottom: 28, left: 44, right: 12 };
-    const pw = W - pad.left - pad.right, ph = H - pad.top - pad.bottom;
-    ctx.clearRect(0, 0, W, H);
-    ctx.strokeStyle = "rgba(99,102,241,0.08)"; ctx.lineWidth = 1;
-    for (let i = 0; i <= 4; i++) { ctx.beginPath(); ctx.moveTo(pad.left, pad.top + (ph / 4) * i); ctx.lineTo(pad.left + pw, pad.top + (ph / 4) * i); ctx.stroke(); }
-    const tMin = refT[0], tMax = refT[refT.length - 1];
-    const yMin = Math.min(...refY), yMax = Math.max(...refY);
-    const yRange = yMax - yMin || 1;
-    const tx = (v: number) => pad.left + ((v - tMin) / (tMax - tMin || 1)) * pw;
-    const ty = (v: number) => pad.top + ph - ((v - yMin) / yRange) * ph;
-    // E(t) line
-    ctx.beginPath();
-    ctx.moveTo(tx(refT[0]), ty(refY[0]));
-    for (let i = 1; i < refT.length; i++) ctx.lineTo(tx(refT[i]), ty(refY[i]));
-    ctx.strokeStyle = "#00ff88"; ctx.lineWidth = 2; ctx.shadowBlur = 6; ctx.shadowColor = "#00ff88"; ctx.stroke(); ctx.shadowBlur = 0;
-    // E(0) dashed line
-    if (e0 != null) {
-      const e0y = ty(e0);
-      ctx.setLineDash([6, 4]);
-      ctx.beginPath(); ctx.moveTo(pad.left, e0y); ctx.lineTo(pad.left + pw, e0y);
-      ctx.strokeStyle = "rgba(251,191,36,0.7)"; ctx.lineWidth = 1.5; ctx.stroke();
-      ctx.setLineDash([]);
-    }
-    ctx.fillStyle = "rgba(148,163,184,0.6)"; ctx.font = "10px JetBrains Mono, monospace"; ctx.textAlign = "center";
-    ctx.fillText("t", pad.left + pw / 2, H - 4);
-  }, [refT, refY, e0]);
+  const traces: Data[] = [
+    {
+      x: refT,
+      y: refY,
+      type: "scatter",
+      mode: "lines",
+      name: "E(t)",
+      line: { color: "#00ff88", width: 2 },
+      hovertemplate: "t=%{x:.4f}<br>E=%{y:.6f}<extra>E(t)</extra>",
+    },
+    ...(e0 != null ? [{
+      x: [refT[0], refT[refT.length - 1]],
+      y: [e0, e0],
+      type: "scatter" as const,
+      mode: "lines" as const,
+      name: "E(0)",
+      line: { color: "rgba(251,191,36,0.7)", width: 1.5, dash: "dash" as const },
+      hoverinfo: "skip" as const,
+    }] : []),
+  ];
   return (
     <div style={{ marginTop: 12 }}>
-      <div style={{ display: "flex", gap: 14, marginBottom: 6, fontSize: "0.7rem", fontFamily: "var(--font-mono)" }}>
-        <span style={{ color: "#00ff88" }}>── E(t)</span>
-        <span style={{ color: "#fbbf24" }}>- - E(0)</span>
-      </div>
-      <div style={{ borderRadius: 8, border: "1px solid rgba(99,102,241,0.15)", background: "rgba(3,7,18,0.6)", height: 130, overflow: "hidden" }}>
-        <canvas ref={canvasRef} style={{ width: "100%", height: "100%" }} />
-      </div>
+      <InteractivePlot
+        data={traces}
+        layout={{
+          xaxis: { title: { text: "t", font: { size: 10 } } },
+          yaxis: { title: { text: "E", font: { size: 10 } } },
+          legend: { orientation: "h", y: -0.25, x: 0, font: { size: 10 } },
+          margin: { t: 12, b: 48, l: 48, r: 12 },
+          showlegend: true,
+        }}
+        height={160}
+      />
     </div>
   );
 }
@@ -358,6 +329,33 @@ export default function ResultTabs({ solved, method, equation, useLlm, solveResu
   const [activeTab, setActiveTab] = useState("solution");
   const [copied, setCopied] = useState(false);
 
+  const METHOD_COLORS: Record<string, string> = {
+    symbolic:  "#a78bfa", laplace: "#60a5fa", rk45: "#34d399",
+    radau: "#fbbf24", euler_fwd: "#f87171", euler_imp: "#f472b6", compare: "#22d3ee",
+  };
+  const methodColor = METHOD_COLORS[method] ?? "#a78bfa";
+
+  const graphTabTraces = useMemo((): Data[] => {
+    if (!solveResult) return [];
+    const { t, y } = solveResult;
+    const x = y[0] ?? [];
+    const dxdt = y.length > 1 ? y[1] : t.map((_, i) => i === 0 ? 0 : (x[i] - x[i - 1]) / (t[i] - t[i - 1]));
+    return [
+      {
+        x: t, y: x, type: "scatter", mode: "lines", name: "x(t)",
+        line: { color: methodColor, width: 2.5, shape: "spline" },
+        fill: "tozeroy", fillcolor: methodColor + "18",
+        hovertemplate: "t=%{x:.4f}<br>x=%{y:.6f}<extra>x(t)</extra>",
+      },
+      {
+        x: t, y: dxdt, type: "scatter", mode: "lines", name: "x′(t)",
+        line: { color: "#f472b6", width: 1.8, dash: "dot" },
+        hovertemplate: "t=%{x:.4f}<br>x′=%{y:.6f}<extra>x′(t)</extra>",
+        yaxis: "y2",
+      },
+    ];
+  }, [solveResult, methodColor]);
+
   const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text).then(() => {
       setCopied(true);
@@ -503,7 +501,34 @@ export default function ResultTabs({ solved, method, equation, useLlm, solveResu
                     ))}
                   </div>
 
-                  <div className="neon-divider" style={{ marginBottom: 20 }} />
+                  {/* Interactive solution chart */}
+                  {graphTabTraces.length > 0 && (
+                    <>
+                      <div style={{ fontSize: "0.78rem", fontFamily: "var(--font-mono)", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "1px", marginBottom: 10 }}>
+                        x(t) &amp; x′(t) — Interactive
+                      </div>
+                      <InteractivePlot
+                        data={graphTabTraces}
+                        layout={{
+                          xaxis: { title: { text: "t", font: { size: 11 } }, domain: [0, 1] },
+                          yaxis: { title: { text: "x(t)", font: { size: 11 } } },
+                          yaxis2: {
+                            title: { text: "x′(t)", font: { size: 11 } },
+                            overlaying: "y",
+                            side: "right",
+                            gridcolor: "rgba(244,114,182,0.08)",
+                            tickfont: { size: 10, color: "rgba(244,114,182,0.7)" },
+                          },
+                          legend: { orientation: "h", y: 1.12, x: 0 },
+                          showlegend: true,
+                          margin: { t: 32, b: 44, l: 54, r: 54 },
+                        }}
+                        height={300}
+                      />
+                    </>
+                  )}
+
+                  <div className="neon-divider" style={{ marginBottom: 20, marginTop: graphTabTraces.length > 0 ? 20 : 0 }} />
 
                   <h3 style={{ fontSize: "1rem", fontWeight: 700, marginBottom: 14, color: "var(--neon-cyan)" }}>Raw Data Preview (first 6 points)</h3>
                   <div style={{ overflowX: "auto" }}>
