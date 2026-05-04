@@ -47,23 +47,53 @@ const FEATURES = [
   },
 ];
 
+interface Particle {
+  x: number;
+  y: number;
+  ox: number; // origin x — home position for spring return
+  oy: number; // origin y
+  vx: number;
+  vy: number;
+  r: number;
+  baseR: number;
+  alpha: number;
+  color: string;
+  hue: number;
+}
+
 export default function HeroSection() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const sectionRef = useRef<HTMLElement>(null);
 
-  // Animated particle field
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    const section = sectionRef.current;
+    if (!canvas || !section) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
     let animId: number;
-    const particles: Array<{
-      x: number; y: number; vx: number; vy: number;
-      r: number; alpha: number; color: string;
-    }> = [];
+    const particles: Particle[] = [];
 
-    const colors = ["#7c3aed", "#2563eb", "#22d3ee", "#34d399"];
+    // Cursor state relative to canvas
+    const mouse = { x: -9999, y: -9999, down: false };
+
+    const COLORS: [string, number][] = [
+      ["#7c3aed", 270],
+      ["#2563eb", 220],
+      ["#22d3ee", 188],
+      ["#34d399", 160],
+      ["#f472b6", 330],
+    ];
+
+    const REPEL_RADIUS = 130;   // cursor influence radius
+    const REPEL_STRENGTH = 0.38; // force scalar
+    const ATTRACT_RADIUS = 220; // secondary pull zone
+    const ATTRACT_STRENGTH = 0.018;
+    const SPRING = 0.012;       // spring back to origin
+    const DAMPING = 0.88;       // velocity decay each frame
+    const CONNECTION_DIST = 130;
+    const BURST_PARTICLES = 8;
 
     const resize = () => {
       canvas.width = canvas.offsetWidth;
@@ -72,48 +102,184 @@ export default function HeroSection() {
     resize();
     window.addEventListener("resize", resize);
 
-    for (let i = 0; i < 60; i++) {
+    // Seed particles spread evenly
+    const COUNT = 80;
+    for (let i = 0; i < COUNT; i++) {
+      const ox = Math.random() * canvas.width;
+      const oy = Math.random() * canvas.height;
+      const [color, hue] = COLORS[Math.floor(Math.random() * COLORS.length)];
+      const baseR = Math.random() * 2 + 0.8;
       particles.push({
-        x: Math.random() * canvas.width,
-        y: Math.random() * canvas.height,
-        vx: (Math.random() - 0.5) * 0.4,
-        vy: (Math.random() - 0.5) * 0.4,
-        r: Math.random() * 2 + 0.5,
-        alpha: Math.random() * 0.6 + 0.2,
-        color: colors[Math.floor(Math.random() * colors.length)],
+        x: ox, y: oy, ox, oy,
+        vx: (Math.random() - 0.5) * 0.35,
+        vy: (Math.random() - 0.5) * 0.35,
+        r: baseR, baseR,
+        alpha: Math.random() * 0.55 + 0.25,
+        color, hue,
       });
     }
+
+    // Spawn burst on click
+    const spawnBurst = (bx: number, by: number) => {
+      for (let i = 0; i < BURST_PARTICLES; i++) {
+        if (particles.length > 160) break;
+        const angle = (i / BURST_PARTICLES) * Math.PI * 2;
+        const speed = Math.random() * 3.5 + 1.5;
+        const [color, hue] = COLORS[Math.floor(Math.random() * COLORS.length)];
+        const baseR = Math.random() * 2.5 + 1;
+        particles.push({
+          x: bx, y: by, ox: bx, oy: by,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          r: baseR * 1.8, baseR,
+          alpha: 0.9,
+          color, hue,
+        });
+        // Burst particles fade out after settling — cap total so they don't pile up
+        setTimeout(() => {
+          const idx = particles.indexOf(particles[particles.length - (BURST_PARTICLES - i)]);
+          if (idx > COUNT) particles.splice(idx, 1);
+        }, 3500 + i * 200);
+      }
+    };
+
+    // Convert section-relative mouse position to canvas coordinates
+    const toCanvas = (clientX: number, clientY: number) => {
+      const rect = canvas.getBoundingClientRect();
+      return { x: clientX - rect.left, y: clientY - rect.top };
+    };
+
+    const onMouseMove = (e: MouseEvent) => {
+      const pos = toCanvas(e.clientX, e.clientY);
+      mouse.x = pos.x;
+      mouse.y = pos.y;
+    };
+    const onMouseLeave = () => { mouse.x = -9999; mouse.y = -9999; };
+    const onMouseDown = (e: MouseEvent) => {
+      mouse.down = true;
+      const pos = toCanvas(e.clientX, e.clientY);
+      spawnBurst(pos.x, pos.y);
+    };
+    const onMouseUp = () => { mouse.down = false; };
+
+    const onTouchMove = (e: TouchEvent) => {
+      const t = e.touches[0];
+      const pos = toCanvas(t.clientX, t.clientY);
+      mouse.x = pos.x;
+      mouse.y = pos.y;
+    };
+    const onTouchEnd = () => { mouse.x = -9999; mouse.y = -9999; };
+
+    section.addEventListener("mousemove", onMouseMove);
+    section.addEventListener("mouseleave", onMouseLeave);
+    section.addEventListener("mousedown", onMouseDown);
+    window.addEventListener("mouseup", onMouseUp);
+    section.addEventListener("touchmove", onTouchMove, { passive: true });
+    section.addEventListener("touchend", onTouchEnd);
 
     const draw = () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      // Connect nearby particles
+      const mx = mouse.x;
+      const my = mouse.y;
+
+      // Draw cursor glow ring when cursor is active
+      if (mx > 0) {
+        const grd = ctx.createRadialGradient(mx, my, 0, mx, my, REPEL_RADIUS);
+        grd.addColorStop(0, "rgba(124,58,237,0.07)");
+        grd.addColorStop(0.5, "rgba(34,211,238,0.04)");
+        grd.addColorStop(1, "rgba(0,0,0,0)");
+        ctx.beginPath();
+        ctx.arc(mx, my, REPEL_RADIUS, 0, Math.PI * 2);
+        ctx.fillStyle = grd;
+        ctx.fill();
+      }
+
+      // Update particle physics
+      for (const p of particles) {
+        const dx = p.x - mx;
+        const dy = p.y - my;
+        const distSq = dx * dx + dy * dy;
+        const dist = Math.sqrt(distSq);
+
+        if (dist < REPEL_RADIUS && dist > 0.5) {
+          // Hard repulsion — push away from cursor
+          const force = (REPEL_RADIUS - dist) / REPEL_RADIUS;
+          const strength = REPEL_STRENGTH * force * force;
+          p.vx += (dx / dist) * strength * (mouse.down ? 2.2 : 1);
+          p.vy += (dy / dist) * strength * (mouse.down ? 2.2 : 1);
+        } else if (dist < ATTRACT_RADIUS && dist > REPEL_RADIUS) {
+          // Soft attraction just outside repel zone — creates orbit effect
+          const force = (ATTRACT_RADIUS - dist) / ATTRACT_RADIUS;
+          p.vx -= (dx / dist) * ATTRACT_STRENGTH * force;
+          p.vy -= (dy / dist) * ATTRACT_STRENGTH * force;
+        }
+
+        // Spring return toward home origin
+        p.vx += (p.ox - p.x) * SPRING;
+        p.vy += (p.oy - p.y) * SPRING;
+
+        // Dampen velocity
+        p.vx *= DAMPING;
+        p.vy *= DAMPING;
+
+        p.x += p.vx;
+        p.y += p.vy;
+
+        // Soft boundary — bounce instead of hard flip to avoid edge clustering
+        if (p.x < 0) { p.x = 0; p.vx = Math.abs(p.vx) * 0.7; }
+        if (p.x > canvas.width) { p.x = canvas.width; p.vx = -Math.abs(p.vx) * 0.7; }
+        if (p.y < 0) { p.y = 0; p.vy = Math.abs(p.vy) * 0.7; }
+        if (p.y > canvas.height) { p.y = canvas.height; p.vy = -Math.abs(p.vy) * 0.7; }
+
+        // Enlarge particles near cursor
+        const proximity = Math.max(0, 1 - dist / REPEL_RADIUS);
+        p.r = p.baseR + proximity * p.baseR * 1.6;
+      }
+
+      // Draw connection lines
       for (let i = 0; i < particles.length; i++) {
         for (let j = i + 1; j < particles.length; j++) {
-          const dx = particles[i].x - particles[j].x;
-          const dy = particles[i].y - particles[j].y;
+          const pi = particles[i];
+          const pj = particles[j];
+          const dx = pi.x - pj.x;
+          const dy = pi.y - pj.y;
           const dist = Math.sqrt(dx * dx + dy * dy);
-          if (dist < 120) {
+          if (dist < CONNECTION_DIST) {
+            // Lines near cursor glow brighter
+            const cursorBoost = Math.max(
+              Math.max(0, 1 - Math.hypot(pi.x - mx, pi.y - my) / ATTRACT_RADIUS),
+              Math.max(0, 1 - Math.hypot(pj.x - mx, pj.y - my) / ATTRACT_RADIUS)
+            );
+            const baseOpacity = 0.12 * (1 - dist / CONNECTION_DIST);
+            const opacity = Math.min(0.65, baseOpacity + cursorBoost * 0.45);
             ctx.beginPath();
-            ctx.moveTo(particles[i].x, particles[i].y);
-            ctx.lineTo(particles[j].x, particles[j].y);
-            ctx.strokeStyle = `rgba(99,102,241,${0.12 * (1 - dist / 120)})`;
-            ctx.lineWidth = 0.6;
+            ctx.moveTo(pi.x, pi.y);
+            ctx.lineTo(pj.x, pj.y);
+            ctx.strokeStyle = `rgba(99,102,241,${opacity})`;
+            ctx.lineWidth = 0.6 + cursorBoost * 0.8;
             ctx.stroke();
           }
         }
       }
 
+      // Draw particles
       for (const p of particles) {
+        const distToCursor = Math.hypot(p.x - mx, p.y - my);
+        const nearCursor = Math.max(0, 1 - distToCursor / REPEL_RADIUS);
+
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-        ctx.fillStyle = p.color + Math.round(p.alpha * 255).toString(16).padStart(2, "0");
+        ctx.fillStyle = p.color + Math.round(Math.min(1, p.alpha + nearCursor * 0.4) * 255).toString(16).padStart(2, "0");
         ctx.fill();
 
-        p.x += p.vx;
-        p.y += p.vy;
-        if (p.x < 0 || p.x > canvas.width) p.vx *= -1;
-        if (p.y < 0 || p.y > canvas.height) p.vy *= -1;
+        // Glow halo for particles closest to cursor
+        if (nearCursor > 0.3) {
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.r * 2.5, 0, Math.PI * 2);
+          ctx.fillStyle = p.color + Math.round(nearCursor * 0.3 * 255).toString(16).padStart(2, "0");
+          ctx.fill();
+        }
       }
 
       animId = requestAnimationFrame(draw);
@@ -123,12 +289,19 @@ export default function HeroSection() {
     return () => {
       cancelAnimationFrame(animId);
       window.removeEventListener("resize", resize);
+      window.removeEventListener("mouseup", onMouseUp);
+      section.removeEventListener("mousemove", onMouseMove);
+      section.removeEventListener("mouseleave", onMouseLeave);
+      section.removeEventListener("mousedown", onMouseDown);
+      section.removeEventListener("touchmove", onTouchMove);
+      section.removeEventListener("touchend", onTouchEnd);
     };
   }, []);
 
   return (
     <section
       id="hero"
+      ref={sectionRef}
       style={{
         position: "relative",
         minHeight: "100vh",
@@ -139,10 +312,11 @@ export default function HeroSection() {
         overflow: "hidden",
         padding: "100px 24px 60px",
         background: "#030712",
+        cursor: "crosshair",
       }}
       className="grid-bg"
     >
-      {/* Particle canvas */}
+      {/* Interactive particle canvas */}
       <canvas
         ref={canvasRef}
         style={{
